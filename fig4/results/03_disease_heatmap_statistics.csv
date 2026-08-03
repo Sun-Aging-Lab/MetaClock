@@ -1,0 +1,19 @@
+dataset,disease,model,control_n,disease_n,mean_difference_disease_minus_control,welch_ttest_p_value,bonferroni_p_value,disease_abbreviation,disease_full_name
+GSE149318_obesity_dnam.csv.gz,obesity,bio_metaclock,69,21,2.671157161639428,0.002889007355393,0.054891139752467004,OB,obesity
+GSE220622_atherosclerosis_dnam.csv.gz,atherosclerosis,bio_metaclock,136,255,1.3839821751056598,0.0009551922718454,0.0181486531650626,ATH,atherosclerosis
+GSE281691_carcinoma_dnam.csv.gz,carcinoma,bio_metaclock,260,221,2.502974404970857,9.355426174687182e-05,0.0017775309731905646,HCC,hepatocellular carcinoma
+GSE42861_rheumatoid_arthritis_dnam.csv.gz,rheumatoid_arthritis,bio_metaclock,335,354,2.8920516287807825,2.7746527858324197e-17,5.271840293081597e-16,RA,rheumatoid arthritis
+GSE53740_neurodegenerative_tauopathy_dnam.csv.gz,neurodegenerative_tauopathy,bio_metaclock,193,186,1.897703116885057,0.0044029203092873,0.0836554858764587,NDT,neurodegenerative tauopathy
+GSE87648_Bowel_dnam.csv.gz,Bowel,bio_metaclock,137,204,5.454753424581789,6.979060120944424e-17,1.3260214229794406e-15,IBD,inflammatory bowel disease (Crohn disease / ulcerative colitis)
+GSE149318_obesity_dnam.csv.gz,obesity,baseline,69,21,1.2860025963018271,0.076366764685068,1.0,OB,obesity
+GSE220622_atherosclerosis_dnam.csv.gz,atherosclerosis,baseline,136,255,0.5670476642714721,0.0613803425307261,1.0,ATH,atherosclerosis
+GSE281691_carcinoma_dnam.csv.gz,carcinoma,baseline,260,221,2.016016375709647,0.0002003346343786,0.0038063580531934003,HCC,hepatocellular carcinoma
+GSE42861_rheumatoid_arthritis_dnam.csv.gz,rheumatoid_arthritis,baseline,335,354,2.2020818515501643,8.214842759540908e-13,1.5608201243127727e-11,RA,rheumatoid arthritis
+GSE53740_neurodegenerative_tauopathy_dnam.csv.gz,neurodegenerative_tauopathy,baseline,193,186,2.76517112909646,1.490073947041043e-05,0.00028311404993779815,NDT,neurodegenerative tauopathy
+GSE87648_Bowel_dnam.csv.gz,Bowel,baseline,137,204,2.8547836804782545,4.672299655511341e-06,8.877369345471548e-05,IBD,inflammatory bowel disease (Crohn disease / ulcerative colitis)
+GSE149318_obesity_dnam.csv.gz,obesity,dnamphenoage,69,21,4.25856547301688,8.012413449871954e-05,0.0015223585554756712,OB,obesity
+GSE220622_atherosclerosis_dnam.csv.gz,atherosclerosis,dnamphenoage,136,255,1.551274305756733,0.0029684039888669,0.0563996757884711,ATH,atherosclerosis
+GSE281691_carcinoma_dnam.csv.gz,carcinoma,dnamphenoage,260,221,2.1837182432519686,0.0014867137900652,0.028247562011238802,HCC,hepatocellular carcinoma
+GSE42861_rheumatoid_arthritis_dnam.csv.gz,rheumatoid_arthritis,dnamphenoage,335,354,2.6756778603044915,3.871070439245073e-11,7.355033834565639e-10,RA,rheumatoid arthritis
+GSE53740_neurodegenerative_tauopathy_dnam.csv.gz,neurodegenerative_tauopathy,dnamphenoage,193,186,1.552345554994261,0.0789408472648249,1.0,NDT,neurodegenerative tauopathy
+GSE87648_Bowel_dnam.csv.gz,Bowel,dnamphenoage,137,204,4.154974123329852,1.0546670200650233e-07,2.0038673381235443e-06,IBD,inflammatory bowel disease (Crohn disease / ulcerative colitis)

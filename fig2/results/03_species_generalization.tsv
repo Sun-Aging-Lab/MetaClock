@@ -1,0 +1,151 @@
+panel_order	group	dataset	label	model	training_samples	n_repeats	mean_mae	sd_mae	q025_mae	q975_mae
+4	species	BosTaurus	Generalization on species (Bos taurus)	SVM	10	50	0.175137969	0.02879784835	0.1357450716	0.2417210603
+4	species	BosTaurus	Generalization on species (Bos taurus)	SVM	11	50	0.1730220465	0.027415474	0.1337604019	0.2409948565
+4	species	BosTaurus	Generalization on species (Bos taurus)	SVM	13	50	0.1660806717	0.01958747659	0.121394003	0.2055594944
+4	species	BosTaurus	Generalization on species (Bos taurus)	SVM	14	50	0.1677898068	0.02557389374	0.1296887005	0.2235198143
+4	species	BosTaurus	Generalization on species (Bos taurus)	SVM	16	50	0.1638725681	0.02117876187	0.1281267371	0.2019624117
+4	species	BosTaurus	Generalization on species (Bos taurus)	SVM	18	50	0.1495504059	0.01565036225	0.1264609219	0.1788582022
+4	species	BosTaurus	Generalization on species (Bos taurus)	SVM	21	50	0.1514922679	0.0177778423	0.1239455739	0.1941762994
+4	species	BosTaurus	Generalization on species (Bos taurus)	SVM	24	50	0.1424403412	0.01679515982	0.1168589972	0.1720394332
+4	species	BosTaurus	Generalization on species (Bos taurus)	SVM	27	50	0.1396669643	0.01186663268	0.1184664441	0.1591142071
+4	species	BosTaurus	Generalization on species (Bos taurus)	SVM	30	50	0.1302269083	0.01202336494	0.1133339072	0.1538830118
+4	species	BosTaurus	Generalization on species (Bos taurus)	SVM	34	50	0.1330043128	0.01282738956	0.1077712245	0.1566123841
+4	species	BosTaurus	Generalization on species (Bos taurus)	SVM	39	50	0.1258680491	0.01214400325	0.1032538441	0.1497483162
+4	species	BosTaurus	Generalization on species (Bos taurus)	SVM	44	50	0.121640507	0.01067550775	0.1069132677	0.1412367425
+4	species	BosTaurus	Generalization on species (Bos taurus)	SVM	49	50	0.1229340844	0.009620246673	0.1073404261	0.1429535792
+4	species	BosTaurus	Generalization on species (Bos taurus)	SVM	56	50	0.1193622491	0.009176971378	0.1026041576	0.1341994641
+4	species	BosTaurus	Generalization on species (Bos taurus)	SVM	63	50	0.1159241342	0.006754063526	0.1055459489	0.1306075341
+4	species	BosTaurus	Generalization on species (Bos taurus)	SVM	72	50	0.1152902023	0.0074821066	0.1004323825	0.1285144347
+4	species	BosTaurus	Generalization on species (Bos taurus)	SVM	81	50	0.1110266803	0.008944002796	0.09717321621	0.1284965067
+4	species	BosTaurus	Generalization on species (Bos taurus)	SVM	92	50	0.1082080272	0.007003239113	0.09547494958	0.118399352
+4	species	BosTaurus	Generalization on species (Bos taurus)	SVM	103	50	0.107314168	0.006924643548	0.09709138468	0.1197307115
+4	species	BosTaurus	Generalization on species (Bos taurus)	SVM	117	50	0.1079500481	0.00739216468	0.09485794263	0.1234792754
+4	species	BosTaurus	Generalization on species (Bos taurus)	SVM	132	50	0.1041438354	0.006562318105	0.09146112544	0.1170682328
+4	species	BosTaurus	Generalization on species (Bos taurus)	SVM	150	50	0.09965748696	0.004620331953	0.09267132266	0.1100100484
+4	species	BosTaurus	Generalization on species (Bos taurus)	SVM	169	50	0.1011859725	0.005671449903	0.09281594725	0.1141859655
+4	species	BosTaurus	Generalization on species (Bos taurus)	SVM	191	50	0.0982153839	0.005592058059	0.08651700064	0.107392995
+4	species	BosTaurus	Generalization on species (Bos taurus)	SVM	216	50	0.0953681207	0.003666306336	0.08917397356	0.1023092089
+4	species	BosTaurus	Generalization on species (Bos taurus)	SVM	245	50	0.09303930156	0.003553943556	0.08732529418	0.1001051347
+4	species	BosTaurus	Generalization on species (Bos taurus)	SVM	277	50	0.09155445582	0.003391433544	0.08575801824	0.09996264455
+4	species	BosTaurus	Generalization on species (Bos taurus)	SVM	313	50	0.08896159001	0.002272765265	0.08553420953	0.09227020208
+4	species	BosTaurus	Generalization on species (Bos taurus)	SVM	354	50	0.08727279775	0.001261133769	0.08596962694	0.09114121952
+4	species	BosTaurus	Generalization on species (Bos taurus)	EN	10	50	0.2072022434	0.02190567263	0.1783691377	0.259444206
+4	species	BosTaurus	Generalization on species (Bos taurus)	EN	11	50	0.2105715691	0.01887454276	0.1764145323	0.2510403204
+4	species	BosTaurus	Generalization on species (Bos taurus)	EN	13	50	0.2087438227	0.02486361605	0.1563981909	0.2497186919
+4	species	BosTaurus	Generalization on species (Bos taurus)	EN	14	50	0.2043726855	0.02110365221	0.1654267706	0.2411749157
+4	species	BosTaurus	Generalization on species (Bos taurus)	EN	16	50	0.1994033052	0.02270728539	0.1538819881	0.2430642174
+4	species	BosTaurus	Generalization on species (Bos taurus)	EN	18	50	0.1910804369	0.02297336593	0.151013451	0.2268147447
+4	species	BosTaurus	Generalization on species (Bos taurus)	EN	21	50	0.1857444542	0.02887654972	0.1376260063	0.2329037963
+4	species	BosTaurus	Generalization on species (Bos taurus)	EN	24	50	0.1779695382	0.02354582251	0.1359745555	0.2186499097
+4	species	BosTaurus	Generalization on species (Bos taurus)	EN	27	50	0.175199851	0.02625770255	0.1356783645	0.2138924508
+4	species	BosTaurus	Generalization on species (Bos taurus)	EN	30	50	0.157512041	0.02435649418	0.1183970813	0.2009708604
+4	species	BosTaurus	Generalization on species (Bos taurus)	EN	34	50	0.1599720587	0.02071468041	0.1301628794	0.1996107346
+4	species	BosTaurus	Generalization on species (Bos taurus)	EN	39	50	0.1459687734	0.02042008799	0.1163430624	0.1857884722
+4	species	BosTaurus	Generalization on species (Bos taurus)	EN	44	50	0.1415975048	0.02249786217	0.1153026829	0.2036444627
+4	species	BosTaurus	Generalization on species (Bos taurus)	EN	49	50	0.1399266994	0.01878660589	0.1097677371	0.1825238783
+4	species	BosTaurus	Generalization on species (Bos taurus)	EN	56	50	0.13410661	0.01324622012	0.1090731733	0.1583591737
+4	species	BosTaurus	Generalization on species (Bos taurus)	EN	63	50	0.1267481934	0.01190673519	0.1026451045	0.145191391
+4	species	BosTaurus	Generalization on species (Bos taurus)	EN	72	50	0.1253176154	0.00990854368	0.1077607207	0.1427509483
+4	species	BosTaurus	Generalization on species (Bos taurus)	EN	81	50	0.1198179505	0.01215429301	0.09858136584	0.1374569651
+4	species	BosTaurus	Generalization on species (Bos taurus)	EN	92	50	0.1155033574	0.01008876521	0.1004020375	0.1353641594
+4	species	BosTaurus	Generalization on species (Bos taurus)	EN	103	50	0.1139195989	0.009014992282	0.09575724151	0.1279903481
+4	species	BosTaurus	Generalization on species (Bos taurus)	EN	117	50	0.1139002883	0.01020542657	0.09593036243	0.1331468486
+4	species	BosTaurus	Generalization on species (Bos taurus)	EN	132	50	0.1104141589	0.01012211465	0.09516452869	0.1336772064
+4	species	BosTaurus	Generalization on species (Bos taurus)	EN	150	50	0.1027836776	0.006881434636	0.08998847905	0.1158909293
+4	species	BosTaurus	Generalization on species (Bos taurus)	EN	169	50	0.1024518461	0.007580950946	0.08855213146	0.1122595854
+4	species	BosTaurus	Generalization on species (Bos taurus)	EN	191	50	0.09817617847	0.009195523661	0.07959942869	0.1144254463
+4	species	BosTaurus	Generalization on species (Bos taurus)	EN	216	50	0.09335754625	0.006735624638	0.08260306081	0.1040874851
+4	species	BosTaurus	Generalization on species (Bos taurus)	EN	245	50	0.09142489726	0.006269044803	0.08094301324	0.1035072144
+4	species	BosTaurus	Generalization on species (Bos taurus)	EN	277	50	0.0884824881	0.005269625089	0.07727540296	0.09769893561
+4	species	BosTaurus	Generalization on species (Bos taurus)	EN	313	50	0.08528015958	0.003588183923	0.08012837139	0.09318003323
+4	species	BosTaurus	Generalization on species (Bos taurus)	EN	354	50	0.08285631032	0.001712880546	0.07997521901	0.08695538444
+4	species	BosTaurus	Generalization on species (Bos taurus)	Meta SVM	10	50	0.1417616096	0.02526794606	0.1139777424	0.2118728715
+4	species	BosTaurus	Generalization on species (Bos taurus)	Meta SVM	11	50	0.1385106948	0.02032958647	0.1126089532	0.1862464248
+4	species	BosTaurus	Generalization on species (Bos taurus)	Meta SVM	13	50	0.1350141357	0.02005198562	0.1086397349	0.1914005778
+4	species	BosTaurus	Generalization on species (Bos taurus)	Meta SVM	14	50	0.1302203954	0.01506212997	0.1091695609	0.1636905829
+4	species	BosTaurus	Generalization on species (Bos taurus)	Meta SVM	16	50	0.1283130857	0.01519748908	0.1078052161	0.1677763414
+4	species	BosTaurus	Generalization on species (Bos taurus)	Meta SVM	18	50	0.1260225071	0.01330430571	0.1063074273	0.1539976133
+4	species	BosTaurus	Generalization on species (Bos taurus)	Meta SVM	21	50	0.1223886046	0.01260382734	0.107429016	0.1550288633
+4	species	BosTaurus	Generalization on species (Bos taurus)	Meta SVM	24	50	0.1194284203	0.01125657467	0.1009184965	0.141932248
+4	species	BosTaurus	Generalization on species (Bos taurus)	Meta SVM	27	50	0.1163836952	0.009617750252	0.1002056816	0.1327319431
+4	species	BosTaurus	Generalization on species (Bos taurus)	Meta SVM	30	50	0.1153857934	0.01051012146	0.1006515704	0.135237089
+4	species	BosTaurus	Generalization on species (Bos taurus)	Meta SVM	34	50	0.1131799148	0.01062082449	0.09806253979	0.1380112804
+4	species	BosTaurus	Generalization on species (Bos taurus)	Meta SVM	39	50	0.1102964849	0.008296977239	0.09723902151	0.1300452417
+4	species	BosTaurus	Generalization on species (Bos taurus)	Meta SVM	44	50	0.1070514147	0.006862029186	0.09427899615	0.1187335609
+4	species	BosTaurus	Generalization on species (Bos taurus)	Meta SVM	49	50	0.1073007398	0.008346512175	0.09501062639	0.1263918003
+4	species	BosTaurus	Generalization on species (Bos taurus)	Meta SVM	56	50	0.1031730157	0.006958276321	0.09421465962	0.1210467206
+4	species	BosTaurus	Generalization on species (Bos taurus)	Meta SVM	63	50	0.1009632257	0.004875363836	0.09369295797	0.1102043243
+4	species	BosTaurus	Generalization on species (Bos taurus)	Meta SVM	72	50	0.1015893879	0.005413106249	0.09283507284	0.1159867245
+4	species	BosTaurus	Generalization on species (Bos taurus)	Meta SVM	81	50	0.1006907196	0.005642986124	0.0915645105	0.1128072404
+4	species	BosTaurus	Generalization on species (Bos taurus)	Meta SVM	92	50	0.09712993501	0.004306930097	0.09013899211	0.1055758191
+4	species	BosTaurus	Generalization on species (Bos taurus)	Meta SVM	103	50	0.09630230592	0.003879864878	0.0904922791	0.1033601163
+4	species	BosTaurus	Generalization on species (Bos taurus)	Meta SVM	117	50	0.09627441116	0.003547396642	0.09038859644	0.1042412784
+4	species	BosTaurus	Generalization on species (Bos taurus)	Meta SVM	132	50	0.09426508959	0.003216390938	0.08980489698	0.1000830055
+4	species	BosTaurus	Generalization on species (Bos taurus)	Meta SVM	150	50	0.09310297315	0.002857034953	0.08830989216	0.09967255959
+4	species	BosTaurus	Generalization on species (Bos taurus)	Meta SVM	169	50	0.0931481761	0.002639114628	0.0886552279	0.0977942356
+4	species	BosTaurus	Generalization on species (Bos taurus)	Meta SVM	191	50	0.09304163819	0.002936236541	0.08804298959	0.09979136913
+4	species	BosTaurus	Generalization on species (Bos taurus)	Meta SVM	216	50	0.0912808762	0.00172450023	0.08845987403	0.09426371689
+4	species	BosTaurus	Generalization on species (Bos taurus)	Meta SVM	245	50	0.09083722926	0.001790335874	0.08798312409	0.09434542746
+4	species	BosTaurus	Generalization on species (Bos taurus)	Meta SVM	277	50	0.09036422785	0.001261194322	0.08822238645	0.09274219131
+4	species	BosTaurus	Generalization on species (Bos taurus)	Meta SVM	313	50	0.08993498693	0.001128150605	0.08825870327	0.09170968468
+4	species	BosTaurus	Generalization on species (Bos taurus)	Meta SVM	354	50	0.08901234543	0.0005566821371	0.08817393977	0.09021653448
+4	species	BosTaurus	Generalization on species (Bos taurus)	Meta EN	10	50	0.1423043111	0.03675329261	0.09857192661	0.224468593
+4	species	BosTaurus	Generalization on species (Bos taurus)	Meta EN	11	50	0.141225633	0.03793574705	0.09840232424	0.2087809827
+4	species	BosTaurus	Generalization on species (Bos taurus)	Meta EN	13	50	0.135402572	0.02275147739	0.09973771367	0.1891127559
+4	species	BosTaurus	Generalization on species (Bos taurus)	Meta EN	14	50	0.1235402703	0.01642978219	0.09934579496	0.1562443878
+4	species	BosTaurus	Generalization on species (Bos taurus)	Meta EN	16	50	0.1203478511	0.02060372345	0.0942551884	0.1541953386
+4	species	BosTaurus	Generalization on species (Bos taurus)	Meta EN	18	50	0.1200102551	0.01960097774	0.09323069406	0.1680524509
+4	species	BosTaurus	Generalization on species (Bos taurus)	Meta EN	21	50	0.1176593606	0.01768549467	0.09575363946	0.1655205184
+4	species	BosTaurus	Generalization on species (Bos taurus)	Meta EN	24	50	0.1100171726	0.01159258115	0.09460945261	0.1308284366
+4	species	BosTaurus	Generalization on species (Bos taurus)	Meta EN	27	50	0.1081168784	0.01153832558	0.09291582512	0.1306247188
+4	species	BosTaurus	Generalization on species (Bos taurus)	Meta EN	30	50	0.1077861756	0.01076054524	0.09117479856	0.1263381263
+4	species	BosTaurus	Generalization on species (Bos taurus)	Meta EN	34	50	0.1049245282	0.009639445542	0.09448083247	0.1253391183
+4	species	BosTaurus	Generalization on species (Bos taurus)	Meta EN	39	50	0.1035652684	0.009275417244	0.09263127207	0.1287355607
+4	species	BosTaurus	Generalization on species (Bos taurus)	Meta EN	44	50	0.1007115876	0.006353206733	0.09194548084	0.1124042327
+4	species	BosTaurus	Generalization on species (Bos taurus)	Meta EN	49	50	0.1016187372	0.006681624503	0.0926708322	0.117275845
+4	species	BosTaurus	Generalization on species (Bos taurus)	Meta EN	56	50	0.09854670062	0.006379469209	0.09116064621	0.1156989844
+4	species	BosTaurus	Generalization on species (Bos taurus)	Meta EN	63	50	0.09741508126	0.0041681937	0.09063589651	0.1065892077
+4	species	BosTaurus	Generalization on species (Bos taurus)	Meta EN	72	50	0.09800209047	0.004720154691	0.09132564427	0.1099382403
+4	species	BosTaurus	Generalization on species (Bos taurus)	Meta EN	81	50	0.0970800931	0.005109888027	0.09042074503	0.1093113526
+4	species	BosTaurus	Generalization on species (Bos taurus)	Meta EN	92	50	0.09475217541	0.00315133586	0.08933207325	0.101378918
+4	species	BosTaurus	Generalization on species (Bos taurus)	Meta EN	103	50	0.09440278474	0.003166994977	0.08882549683	0.1012083224
+4	species	BosTaurus	Generalization on species (Bos taurus)	Meta EN	117	50	0.09489118043	0.003101549112	0.08928937353	0.1009153557
+4	species	BosTaurus	Generalization on species (Bos taurus)	Meta EN	132	50	0.09385698799	0.003042628886	0.08858300261	0.09958640095
+4	species	BosTaurus	Generalization on species (Bos taurus)	Meta EN	150	50	0.09309445758	0.002687677316	0.08897631379	0.09933327031
+4	species	BosTaurus	Generalization on species (Bos taurus)	Meta EN	169	50	0.09325057172	0.002005843896	0.08934045775	0.09656087027
+4	species	BosTaurus	Generalization on species (Bos taurus)	Meta EN	191	50	0.09307055883	0.001998918194	0.08992049281	0.0973205732
+4	species	BosTaurus	Generalization on species (Bos taurus)	Meta EN	216	50	0.0921461796	0.001318567772	0.08974631575	0.09450364543
+4	species	BosTaurus	Generalization on species (Bos taurus)	Meta EN	245	50	0.0920861161	0.001561350973	0.08936772122	0.09473678562
+4	species	BosTaurus	Generalization on species (Bos taurus)	Meta EN	277	50	0.09183338556	0.001090993657	0.08991428843	0.09418659424
+4	species	BosTaurus	Generalization on species (Bos taurus)	Meta EN	313	50	0.09151752912	0.0009154477233	0.08938682787	0.09329449453
+4	species	BosTaurus	Generalization on species (Bos taurus)	Meta EN	354	50	0.0911053391	0.0003320196761	0.09050016561	0.09161879309
+4	species	BosTaurus	Generalization on species (Bos taurus)	Mean	10	50	0.2092125838	0.009220437082	0.1993918834	0.2347389133
+4	species	BosTaurus	Generalization on species (Bos taurus)	Mean	11	50	0.2126354372	0.01535113247	0.1993465176	0.246036418
+4	species	BosTaurus	Generalization on species (Bos taurus)	Mean	13	50	0.207206682	0.00806687692	0.1994240061	0.226732477
+4	species	BosTaurus	Generalization on species (Bos taurus)	Mean	14	50	0.2095337685	0.01186266437	0.1994761005	0.2404556503
+4	species	BosTaurus	Generalization on species (Bos taurus)	Mean	16	50	0.2071849913	0.009253259322	0.1993310722	0.232037037
+4	species	BosTaurus	Generalization on species (Bos taurus)	Mean	18	50	0.2057419021	0.007376076073	0.1993973451	0.2245101275
+4	species	BosTaurus	Generalization on species (Bos taurus)	Mean	21	50	0.2063576835	0.0069823961	0.1995138652	0.2226617168
+4	species	BosTaurus	Generalization on species (Bos taurus)	Mean	24	50	0.20387833	0.004599658726	0.199362785	0.2173319179
+4	species	BosTaurus	Generalization on species (Bos taurus)	Mean	27	50	0.2033456757	0.004186476525	0.1993249953	0.2126836412
+4	species	BosTaurus	Generalization on species (Bos taurus)	Mean	30	50	0.2042951985	0.005549905889	0.1993359439	0.218669858
+4	species	BosTaurus	Generalization on species (Bos taurus)	Mean	34	50	0.2028922673	0.004797225093	0.199316577	0.2154266945
+4	species	BosTaurus	Generalization on species (Bos taurus)	Mean	39	50	0.2029569319	0.003514511382	0.1993341439	0.2107612531
+4	species	BosTaurus	Generalization on species (Bos taurus)	Mean	44	50	0.2018959527	0.002908299163	0.1993381784	0.2077545768
+4	species	BosTaurus	Generalization on species (Bos taurus)	Mean	49	50	0.2027056977	0.004332563933	0.1993272189	0.2119969458
+4	species	BosTaurus	Generalization on species (Bos taurus)	Mean	56	50	0.2025337493	0.003297877361	0.1993502014	0.2124210937
+4	species	BosTaurus	Generalization on species (Bos taurus)	Mean	63	50	0.2024781627	0.003215017419	0.1993388372	0.2104297124
+4	species	BosTaurus	Generalization on species (Bos taurus)	Mean	72	50	0.2027030726	0.003044497096	0.1993764657	0.2089582351
+4	species	BosTaurus	Generalization on species (Bos taurus)	Mean	81	50	0.2009506706	0.001911244934	0.1993128922	0.2058660308
+4	species	BosTaurus	Generalization on species (Bos taurus)	Mean	92	50	0.2018046381	0.001848976679	0.1993762775	0.2056169579
+4	species	BosTaurus	Generalization on species (Bos taurus)	Mean	103	50	0.2020991579	0.00248781911	0.1993291834	0.2065907542
+4	species	BosTaurus	Generalization on species (Bos taurus)	Mean	117	50	0.2020272259	0.002022853975	0.1994069828	0.2065183407
+4	species	BosTaurus	Generalization on species (Bos taurus)	Mean	132	50	0.2014217628	0.001880462043	0.1993313257	0.2050617389
+4	species	BosTaurus	Generalization on species (Bos taurus)	Mean	150	50	0.2012749701	0.00160929393	0.1993882602	0.2047810512
+4	species	BosTaurus	Generalization on species (Bos taurus)	Mean	169	50	0.2015143838	0.001209975067	0.1993772794	0.2040598435
+4	species	BosTaurus	Generalization on species (Bos taurus)	Mean	191	50	0.2012572976	0.00120476477	0.1995013912	0.2027131885
+4	species	BosTaurus	Generalization on species (Bos taurus)	Mean	216	50	0.2013518249	0.00117487092	0.1995356773	0.2036342386
+4	species	BosTaurus	Generalization on species (Bos taurus)	Mean	245	50	0.2012951295	0.001014801456	0.1993509171	0.2029773315
+4	species	BosTaurus	Generalization on species (Bos taurus)	Mean	277	50	0.2012426358	0.0007725822132	0.2000441037	0.2026666793
+4	species	BosTaurus	Generalization on species (Bos taurus)	Mean	313	50	0.2011785371	0.0005850846094	0.2003022327	0.202178659
+4	species	BosTaurus	Generalization on species (Bos taurus)	Mean	354	50	0.2011294746	0.0002027704421	0.2007234238	0.2014423163

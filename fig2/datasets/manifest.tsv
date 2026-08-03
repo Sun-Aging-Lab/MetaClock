@@ -1,0 +1,5 @@
+panel_order	group	dataset	label	dataset_dir	minimum_training_samples
+1	array	GSE234461	Generalization on array (EPIC)	fig2/datasets/array/GSE234461	30
+2	array	GSE184221	Generalization on array (MethylChip40)	fig2/datasets/array/GSE184221	32
+3	tissue	GSE111629	Generalization on tissue (Whole blood)	fig2/datasets/tissue/GSE111629	30
+4	species	BosTaurus	Generalization on species (Bos taurus)	fig2/datasets/species/BosTaurus	10

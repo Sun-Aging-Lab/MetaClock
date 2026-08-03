@@ -1,0 +1,10 @@
+figure	panel_order	table	description
+fig1	01	01_model_architecture_scatter.csv	Four external datasets by nine MetaClock architecture or ensemble alternatives
+fig1	02	02_component_clock_scatter.csv	Four external datasets by 15 component clocks plus linear-SVR MetaClock
+fig1	03	03_ablation_summary.csv	Mean performance after each cumulative component-clock removal
+fig1	04	04_ablation_step_01.csv	Per-dataset metrics after removing Zhang BLUP
+fig1	05	05_ablation_step_02.csv	Per-dataset metrics after additionally removing Han
+fig1	06	06_ablation_step_03.csv	Per-dataset metrics after additionally removing Skin and Blood
+fig1	07	07_ablation_step_04.csv	Per-dataset metrics after additionally removing HRSInCHPhenoAge
+fig1	08	08_ablation_step_05.csv	Per-dataset metrics after additionally removing EN-Cen40
+fig1	09	09_single_clock_ranking.csv	Eligible component-clock ranking that determines the removal order

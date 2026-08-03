@@ -1,0 +1,7 @@
+figure	panel_order	table	description
+fig4	01	01_prediction_metrics.csv	Participant-level OOF MAE and Pearson r for BioMeta and Baseline
+fig4	02	02_duplicate_reliability.csv	ICC(A,1), Pearson r, and absolute prediction differences for 44 duplicate pairs
+fig4	03	03_disease_heatmap_statistics.csv	Six displayed diseases by three focal models, including Welch and Bonferroni p-values and disease full names
+fig4	04	04_cox_standardized_coefficients.csv	Three standardized scores under three adjustment sets with two-sided 95% confidence intervals
+fig4	05a	05a_km_logrank.csv	Top-versus-bottom 20% log-rank tests for three age-corrected scores
+fig4	05b	05b_km_curve_points.csv	Survival estimates and 95% confidence intervals used to draw panel 5

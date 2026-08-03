@@ -1,0 +1,4 @@
+figure	panel_order	table	description
+fig3	01	01_evolutionary_distance.tsv	90 directed coefficients versus molecular evolutionary distance
+fig3	02	02_maximum_lifespan.tsv	90 directed coefficients versus absolute maximum-lifespan difference
+fig3	03	03_gestation_time.tsv	90 directed coefficients versus absolute gestation-time difference
