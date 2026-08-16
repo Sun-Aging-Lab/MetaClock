@@ -1,5 +1,0 @@
-panel_order	input	relative_path	description
-1	loo_predictions	fig3/datasets/loo_predictions	Ten target-species leave-one-species-out prediction parquets
-1	pairwise_distances	fig3/datasets/pairwise_evolutionary_distances.tsv	Forty-five undirected molecular evolutionary distances
-2	life_history	fig3/datasets/species_life_history.tsv	Ten-species maximum lifespan in years
-3	life_history	fig3/datasets/species_life_history.tsv	Ten-species gestation time in days

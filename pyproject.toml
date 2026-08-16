@@ -1,0 +1,44 @@
+[project]
+name = "metaclock-analysis-workflows"
+version = "0.1.0"
+description = "Reproducible analysis and plotting workflows for MetaClock"
+readme = "README.md"
+requires-python = ">=3.11,<3.12"
+dependencies = [
+    "joblib==1.5.2",
+    "lifelines==0.30.3",
+    "matplotlib==3.10.8",
+    "numpy==2.3.5",
+    "pandas==2.3.3",
+    "pymupdf==1.26.6",
+    "pyarrow==23.0.1",
+    "scikit-learn==1.8.0",
+    "scipy==1.17.0",
+    "statsmodels==0.14.6",
+    "torch==2.9.1",
+]
+
+[tool.uv]
+package = false
+
+[dependency-groups]
+dev = [
+    "pytest==8.4.2",
+    "ruff==0.14.10",
+]
+
+[tool.pytest.ini_options]
+addopts = "-ra"
+testpaths = [
+    "biological_age_prediction_and_mortality_analysis/tests",
+    "chronological_age_prediction_performance/tests",
+    "generalization/tests",
+    "intervention_analysis/tests",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]

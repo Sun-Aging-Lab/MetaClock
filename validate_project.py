@@ -1,84 +1,108 @@
 #!/usr/bin/env python3
-"""Run lightweight structural checks for the refactored figure project."""
+"""Validate the portable MetaClock analysis source tree."""
 
 from __future__ import annotations
 
 import ast
-import csv
+import re
 from pathlib import Path
 
+ROOT = Path(__file__).resolve().parent
+REQUIRED_DIRECTORIES = (
+    "chronological_age_prediction_performance",
+    "chronological_age_prediction_performance/tests",
+    "generalization/array",
+    "generalization/tissue",
+    "generalization/species",
+    "generalization/tests",
+    "biological_age_prediction_and_mortality_analysis",
+    "biological_age_prediction_and_mortality_analysis/tests",
+    "intervention_analysis",
+    "intervention_analysis/tests",
+)
+MACHINE_SPECIFIC_PATH = re.compile(r"(?<![A-Za-z0-9_])/(?:orcd|home|Users)/")
+NUMBERED_FIGURE_REFERENCE = re.compile(r"\bfig(?:ure)?\s*[2-5]\b", re.IGNORECASE)
+INPUT_NAME = re.compile(
+    r"^DEFAULT_[A-Z0-9_]*(?:DATA|INPUT|TABLE|MANIFEST|MODEL|FEATURE|PREDICTION|RESULT|AUDIT|ANNOTATION|PDF|SVG)[A-Z0-9_]*$"
+)
 
-PROJECT_ROOT = Path(__file__).resolve().parent
-FIGURES = ("fig1", "fig2", "fig3", "fig4")
-FORBIDDEN_PATH_FRAGMENTS = ("/orcd/", "meta_clock_bio")
 
-
-def validate_python_file(path: Path) -> list[str]:
-    """Return validation errors for one Python source file."""
+def validate_structure() -> list[str]:
+    """Return errors for missing project-level files or semantic directories."""
     errors: list[str] = []
-    source = path.read_text(encoding="utf-8")
-    try:
-        ast.parse(source, filename=str(path))
-    except SyntaxError as exc:
-        errors.append(f"{path}: syntax error: {exc}")
-    for fragment in FORBIDDEN_PATH_FRAGMENTS:
-        if fragment in source:
-            errors.append(f"{path}: machine-specific path fragment {fragment!r}")
+    for relative in ("README.md", "pyproject.toml", "uv.lock", ".python-version"):
+        if not (ROOT / relative).is_file():
+            errors.append(f"missing file: {relative}")
+    for relative in REQUIRED_DIRECTORIES:
+        if not (ROOT / relative).is_dir():
+            errors.append(f"missing directory: {relative}")
     return errors
 
 
-def validate_manifest(path: Path, table_root: Path | None = None) -> list[str]:
-    """Check that one result manifest is ordered and references existing files."""
+def validate_sources() -> tuple[list[str], int, int]:
+    """Parse Python and inspect Python/R sources for machine-specific paths."""
     errors: list[str] = []
-    with path.open(newline="", encoding="utf-8") as handle:
-        rows = list(csv.DictReader(handle, delimiter="\t"))
-    if not rows:
-        return [f"{path}: manifest is empty"]
-    required = {"figure", "panel_order", "table", "description"}
-    if not required.issubset(rows[0]):
-        return [f"{path}: expected columns {sorted(required)}"]
-    orders = [(row["figure"], row["panel_order"]) for row in rows]
-    if orders != sorted(orders):
-        errors.append(f"{path}: figure/panel_order is not sorted")
-    table_root = table_root or path.parent
-    for row in rows:
-        table = table_root / row["table"]
-        if not table.is_file():
-            errors.append(f"{path}: missing table {row['table']}")
-    return errors
+    python_count = 0
+    for path in sorted(ROOT.rglob("*.py")):
+        python_count += 1
+        text = path.read_text(encoding="utf-8")
+        relative = path.relative_to(ROOT)
+        try:
+            tree = ast.parse(text, filename=str(relative))
+        except SyntaxError as error:
+            errors.append(f"syntax error in {relative}: {error}")
+            tree = None
+        if path != Path(__file__) and MACHINE_SPECIFIC_PATH.search(text):
+            errors.append(f"machine-specific absolute path in {relative}")
+        if tree is not None:
+            lines = text.splitlines()
+            for node in ast.walk(tree):
+                if not isinstance(node, (ast.Assign, ast.AnnAssign)):
+                    continue
+                targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+                names = [target.id for target in targets if isinstance(target, ast.Name)]
+                if not any(INPUT_NAME.match(name) for name in names):
+                    continue
+                segment = "\n".join(lines[node.lineno - 1 : node.end_lineno])
+                if "# fill in your path" not in segment:
+                    errors.append(
+                        f"unmarked default input in {relative}:{node.lineno}: "
+                        f"{', '.join(names)}"
+                    )
+    r_count = 0
+    for path in sorted(ROOT.rglob("*.R")):
+        r_count += 1
+        text = path.read_text(encoding="utf-8")
+        relative = path.relative_to(ROOT)
+        if MACHINE_SPECIFIC_PATH.search(text):
+            errors.append(f"machine-specific absolute path in {relative}")
+    return errors, python_count, r_count
 
 
-def validate_project(root: Path = PROJECT_ROOT) -> list[str]:
-    """Validate figure structure, Python syntax, relative paths, and manifests."""
+def validate_documentation() -> list[str]:
+    """Require content-oriented README wording without manuscript numbering."""
     errors: list[str] = []
-    for figure in FIGURES:
-        figure_dir = root / figure
-        for required in ("README.md", "scripts", "datasets", "results"):
-            if not (figure_dir / required).exists():
-                errors.append(f"{figure_dir}: missing {required}")
-        for script in sorted((figure_dir / "scripts").glob("*.py")):
-            errors.extend(validate_python_file(script))
-        manifest = figure_dir / "results" / "manifest.tsv"
-        if manifest.is_file():
-            errors.extend(validate_manifest(manifest))
-        else:
-            errors.append(f"{figure_dir}: missing results/manifest.tsv")
-    root_manifest = root / "results_manifest.tsv"
-    if root_manifest.is_file():
-        errors.extend(validate_manifest(root_manifest, table_root=root))
-    else:
-        errors.append(f"{root}: missing results_manifest.tsv")
+    for path in sorted(ROOT.rglob("README.md")):
+        relative = path.relative_to(ROOT)
+        for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            if NUMBERED_FIGURE_REFERENCE.search(line):
+                errors.append(
+                    f"numbered figure reference in {relative}:{line_number}: {line.strip()}"
+                )
     return errors
 
 
 def main() -> int:
-    """Print all validation findings and return a shell-friendly status."""
-    errors = validate_project()
+    """Run all lightweight checks and print an auditable summary."""
+    errors = validate_structure()
+    source_errors, python_count, r_count = validate_sources()
+    errors.extend(source_errors)
+    errors.extend(validate_documentation())
     if errors:
-        for error in errors:
-            print(f"ERROR: {error}")
+        print("Project validation failed:")
+        print("\n".join(f"- {error}" for error in errors))
         return 1
-    print("OK: figure directories, Python syntax, paths, and manifests validated")
+    print(f"Project validation passed: {python_count} Python and {r_count} R source files checked.")
     return 0
 
 

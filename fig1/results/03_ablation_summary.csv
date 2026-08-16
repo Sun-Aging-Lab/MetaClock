@@ -1,6 +1,0 @@
-ablation_step,removed_clock,removed_clocks,n_retained_clocks,metaclock_mean_mae,metaclock_mean_pearson_r
-1,zhangblup,zhangblup,15,4.585104920485874,0.953504213307572
-2,han,zhangblup;han,14,4.514821558434077,0.9535723274889218
-3,skinandblood,zhangblup;han;skinandblood,13,4.440472467352274,0.9532469384936496
-4,hrsinchphenoage,zhangblup;han;skinandblood;hrsinchphenoage,12,4.456604189650287,0.953220943583618
-5,encen40,zhangblup;han;skinandblood;hrsinchphenoage;encen40,11,4.668522487532527,0.9515568609442323

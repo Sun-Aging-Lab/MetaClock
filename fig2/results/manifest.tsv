@@ -1,5 +1,0 @@
-figure	panel_order	table	description
-fig2	01	01_array_generalization.tsv	Panel 1: GSE234461 EPIC-array few-shot curves
-fig2	02	01_array_generalization.tsv	Panel 2: GSE184221 MethylChip40-array few-shot curves
-fig2	03	02_tissue_generalization.tsv	Panel 3: GSE111629 whole-blood few-shot curves
-fig2	04	03_species_generalization.tsv	Panel 4: Bos taurus cross-species few-shot curves

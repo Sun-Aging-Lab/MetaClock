@@ -1,61 +1,84 @@
-# MetaClock figure analysis
+# MetaClock analysis workflows
 
-This directory contains readable, figure-ordered analysis code and compact
-result tables for the MetaClock manuscript. Raw methylation matrices, fitted
-models, and other large inputs are intentionally not included.
+This repository contains compact, reproducible workflows for chronological-age
+prediction, cross-domain generalization, biological-age and mortality analysis,
+functional enrichment, and intervention analysis. Raw methylation matrices,
+fitted model artifacts, and cohort metadata are intentionally not bundled.
+Every dataset/model input is a project-relative placeholder marked
+`# fill in your path`; it can be replaced directly and, where exposed by an
+entry point, overridden with a command-line option.
 
-## Layout
+## Project overview
 
-```text
-fig1/  chronological-age scatterplots and ablation study
-fig2/  array, tissue, and species generalization
-fig3/  evolutionary distance, maximum lifespan, and gestation time
-fig4/  InCHIANTI prediction, disease, Cox, and Kaplan-Meier analyses
-results_manifest.tsv  all included result tables in figure/panel order
-validate_project.py   lightweight path, syntax, and table checks
-```
+MetaClock is a modular DNA-methylation analysis framework that combines
+predictions from multiple established epigenetic clocks into compact meta
+models. This repository organizes the reproducible downstream workflows used
+to evaluate chronological-age prediction, quantify generalization across array
+platforms, tissues, and species, and study biological-age associations with
+disease, mortality, and interventions. It also includes CpG-weight enrichment
+analysis for interpreting the biological processes represented by the component
+models. Training, aggregation, statistical testing, plotting, and validation
+are separated into focused scripts so that each stage can be rerun or audited
+independently.
 
-Every figure directory contains:
-
-- `scripts/`: compact analysis and plotting entry points;
-- `results/`: manuscript result tables prefixed by panel order;
-- `results/manifest.tsv`: the ordered table index for that figure;
-- `datasets/README.md`: the expected input layout and required columns.
-
-## Configure your datasets
-
-The scripts do not contain machine-specific data paths. By default, each script
-looks below its own figure directory, for example:
+## Project layout
 
 ```text
-fig1/datasets/all_predicted_ages_with_id.csv
-fig2/datasets/array/GSE234461/
-fig2/datasets/tissue/GSE111629/
-fig2/datasets/species/BosTaurus/
-fig3/datasets/loo_predictions/
-fig4/datasets/inchianti/
+chronological_age_prediction_performance/          chronological-age prediction metrics and scatter plots
+generalization/
+├── array/                                         array generalization
+├── tissue/                                        tissue generalization
+└── species/                                       species generalization and three evolutionary plots
+biological_age_prediction_and_mortality_analysis/  prediction, disease, mortality, and enrichment
+intervention_analysis/                             intervention effects and FDR volcano plot
 ```
 
-Replace these placeholder directories with your datasets, or pass the relevant
-`--data-dir`, `--dataset-dir`, `--results-dir`, or `--output-dir` option shown by
-`python <script> --help`. A symlink to data stored elsewhere is also sufficient.
-The compact tables under `results/` are included for manuscript reporting and
-do not need to be regenerated merely to inspect the published values.
+Each directory has a focused README describing input columns, outputs, fixed
+analysis parameters, and example commands. Scripts expose typed functions as
+well as a command-line entry point and create output directories when needed.
 
 ## Environment
 
-Create an environment with the packages in `requirements.txt`. The plotting
-scripts use editable-text PDF/SVG output and create output directories when
-needed.
-
-Run the lightweight repository checks from this directory:
+Install [uv](https://docs.astral.sh/uv/) and create the locked Python 3.11
+environment from the repository root:
 
 ```bash
-python validate_project.py
+uv sync --frozen
+uv run --frozen python validate_project.py
+uv run --frozen pytest
+uv run --frozen ruff check .
 ```
 
-Each figure README gives the input schema, analysis parameters, result-table
-order, and example commands. `MANUSCRIPT_RESULTS_AND_METHODS.md` consolidates
-the main numerical readouts and fixed analysis parameters for manuscript use.
+Python dependency versions are pinned in `pyproject.toml` and fully resolved in
+`uv.lock`. The GREAT enrichment workflow additionally uses R 4.4, Bioconductor
+3.20, `rGREAT` 2.8.0, `data.table`, `GenomicRanges`, `GenomeInfoDb`, `minfi`,
+`rtracklayer`, `AnnotationDbi`, `org.Hs.eg.db`, and the 27K v1.2, 450K v1.2,
+and EPIC v1.0 B4 hg19 annotation packages documented in the enrichment README;
+R dependencies are therefore recorded separately from the Python lockfile.
 
-The maintained figure-ordered interface is `fig1/` through `fig4/`.
+## Reproducibility conventions
+
+- Training-size generalization uses `StandardScaler` within every resample.
+  Elastic Net uses five-fold `ElasticNetCV`, 30 log-spaced alphas from `1` to
+  `1e-5`, `max_iter=20000`, 30 log-spaced training sizes beginning at at least
+  10, and 50 resamples per size. Species component predictions are MLP-ELU
+  predictions. Evolution relationships reproduce their formal alpha range of
+  `10` to `1e-5`; their spline basis is not scaled a second time.
+- Plotting scripts write matching PDF and SVG vector outputs with consistent
+  typography and fixed canvas sizes.
+- Biological and intervention alpha selection wrap the complete
+  `Pipeline(StandardScaler, ElasticNet)` in `GridSearchCV`, so scaling is fit
+  independently in each fold. Any convergence warning rejects the fit.
+- Biological component lists reject `dnamfitage` explicitly and validate the
+  exact ordered feature manifests.
+- Enrichment uses the 27K + 450K + EPIC v1.0 B4 union as the GREAT universe and
+  top/bottom 1,000 CpGs without a foreground-array restriction. The manifest
+  records 16 chronological and 19 biological candidate clocks; only the 8 and
+  17 clocks that pass the fixed-affine audit contribute CpG weights.
+- Statistical tests, scaling, model selection, survival analysis, and multiple
+  testing correction use maintained scientific packages rather than local
+  reimplementations.
+
+Run any entry point with `--help` to inspect its expected relative inputs. The
+repository validator checks directory structure, syntax, path portability, and
+the required input-path annotations without executing long model fits.

@@ -1,3 +1,41 @@
-AGENTS.md
-STATUS.md
-MANUSCRIPT_RESULTS_AND_METHODS.md
+# Local tooling and Python environments
+.agents/
+.codex/
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.matplotlib/
+
+# Editor and operating-system files
+.vscode/
+.idea/
+.DS_Store
+*~
+
+# Logs and scheduler outputs
+*.log
+*.out
+*.err
+slurm-*.out
+
+# Project-relative raw inputs and generated outputs
+/data/
+/datasets/
+/models/
+/results/
+/figures/
+
+# Large analysis artifacts
+*.joblib
+*.pkl
+*.pickle
+*.pt
+*.RData
+*.rds
+*.parquet
+*.feather
+*.h5
+*.hdf5
