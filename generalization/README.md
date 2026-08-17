@@ -1,14 +1,14 @@
 # Generalization analysis
 
 This directory contains the compact implementation of array, tissue, and
-species generalization analyses. It replaces experiment-history paths with a
+species generalization analyses. It replaces unnecessary experiment paths with a
 small set of explicit inputs. Final estimator settings and validation live in
 `modeling.py`; strict shard aggregation lives in `aggregation.py`.
 
 ## Directory map
 
 - `array/`: array-platform training, aggregation, and plotting for GSE234461
-  (MethylChipEPIC v1.0) and GSE184221 (MethylChip40k).
+  (MethylChipEPIC v1.0) and GSE184221 (MethylChip40).
 - `tissue/`: healthy saliva (GSE232891), breast (GSE287331), and lung
   (GSE175458) training, aggregation, and plotting.
 - `species/`: species MLP-ELU components, leave-one-species-out component
@@ -19,16 +19,17 @@ small set of explicit inputs. Final estimator settings and validation live in
 - `aggregation.py`: strict 30 x 50 shard aggregation and shared plot cutoff.
 - `plotting.py`: exact current formal 90 x 60 mm generalization styling.
 - `validate_generalization_outputs.py`: PDF/SVG canvas, font, text, and style
-  validation for all 18 final outputs.
+  validation for all 33 final PDF/SVG pairs.
 
 The four bundled Liberation Sans font files make vector typography independent
 of cluster font installation. Their SHA-256 digests are enforced by `fonts.py`;
 copyright and the SIL Open Font License 1.1 are included in
 `assets/fonts/OFL.txt`.
 
-Every external dataset path is a project-relative `Path(...)` whose definition
-ends in `# fill in your path`. Edit the paths in the appropriate training file
-or in `species/species_config.py`; no machine-specific path is embedded here.
+Every external raw-data default is written literally as
+`Path("/path/to/your/file")  # fill in your path`. Replace these declarations in
+the group `datasets.py` file or `species/species_config.py`. Relative paths are
+reserved for workflow-owned intermediate and output files.
 
 ## Input schemas
 
@@ -40,8 +41,11 @@ partition.
 
 Species meta inputs contain exactly ten columns: nine leave-one-species-out
 predictions named `<Species>_mlp_elu` plus `alltissueconcat_mlp_elu`. These are
-fresh predictions from the recovered two-layer MLP with hidden dimensions
-100/50, ELU, BatchNorm, dropout 0.5, AdamW, and 300 epochs.
+fresh predictions from the current two-layer MLP with hidden dimensions
+100/50, ELU, BatchNorm, dropout 0.5, AdamW, and 300 epochs. Component training
+uses every deposited array-probe column other than `age`, including both the
+37,488 `cg` probes and 62 `rs` probes plus four `ch.` probes in the formal
+37,554-feature inputs.
 
 The evolution inputs are intentionally distinct: each target-species parquet
 contains the nine held-out component predictions named
@@ -62,14 +66,20 @@ contains the nine held-out component predictions named
   `tol=1e-4`, and `n_jobs=-1`.
 - SVM and Meta SVM: `StandardScaler` then linear `SVR`, `C=1`, `epsilon=0.1`,
   and unlimited iterations (`max_iter=-1`).
-- The shared plot begins at the first size at or above 10 where the mean MAE of
-  both EN and Meta EN is below the mean-prediction baseline. All five curves use
-  that same cutoff. Bands are the 2.5th and 97.5th percentiles across 50
-  resamples.
-- Evolution reproduces the current formal evolution code: component weights use
-  `StandardScaler` followed by non-negative five-fold ENCV; component and spline
-  ENCV search 30 alphas from 10 to 1e-5. The cubic spline basis is intentionally
-  not scaled a second time. Its interval uses 200 bootstrap resamples.
+- Every direct and meta estimator is refit independently for every resample in
+  every array, tissue, and species point. SVM and Meta SVM use the same scaled
+  linear-SVR settings as the other fresh-fit curves.
+- The shared plot begins at the first size at or above 10 where EN, Meta EN,
+  SVM, and Meta SVM all have mean MAE below the mean-prediction baseline at
+  that same size. Both subplot layouts use this cutoff. Bands are the 2.5th
+  and 97.5th percentiles across 50 resamples.
+- Evolution reproduces the current formal fixed-alpha artifacts. Its upstream
+  columns use the current `<Species>_elasticnetcv` predictions. Directed
+  weights use `StandardScaler` followed by non-negative
+  `ElasticNet(alpha=0.001, l1_ratio=0.5, max_iter=1000)`. The descriptive trend
+  uses a cubic `SplineTransformer` followed by the same fixed-alpha Elastic Net,
+  without a second scaler. Its interval uses 200 row-bootstrap resamples with
+  replacement and seed 42.
 
 ## Commands
 
@@ -124,14 +134,17 @@ uv run python -m generalization.validate_generalization_outputs
 
 Point shards are only skipped when their complete model × repeat Cartesian grid
 and JSON provenance match the requested configuration. Aggregation revalidates
-all 30 shards and emits its own provenance audit.
+all 30 shards and emits its own provenance audit. Every shard contains EN,
+Meta EN, SVM, Meta SVM, and Mean for every resample.
 
 ## Outputs
 
-The plotting scripts generate these output groups:
+The plotting scripts generate both formal layout variants for each generalization
+dataset:
 
-- array/tissue: `<GSE>_fewshot_clock_mi_svm_with_mean_baseline.{pdf,svg}`;
-- species:
+- array/tissue: `<GSE>_fewshot_clock_mi_svm.{pdf,svg}` (direct and Meta curves)
+  and `<GSE>_fewshot_clock_mi_svm_with_mean_baseline.{pdf,svg}`;
+- species: `<Species>_fewshot_clock.{pdf,svg}` (direct and Meta curves) and
   `<Species>_fewshot_clock_with_mean_and_universal_baselines.{pdf,svg}`;
 - evolution: `component_en_coef_vs_molecular_evolutionary_distance`,
   `component_en_coef_vs_max_lifespan_difference`, and
@@ -141,6 +154,7 @@ The maximum-lifespan and gestation labels use mathematical absolute-value bars:
 `|Maximum lifespan difference| (years)` and
 `|Gestation time difference| (days)`.
 
-Only the final baseline-comparison panels are emitted: every generalization
-panel includes Mean, and every species panel additionally includes Universal
-Clock. Baseline-free historical variants are intentionally not generated.
+The no-baseline variants display only direct and Meta curves. The
+baseline-comparison variants add Mean for array/tissue, and Mean plus Universal
+Clock for species. Together with the three evolution panels, this is a strict
+33 PDF/SVG-pair output contract.

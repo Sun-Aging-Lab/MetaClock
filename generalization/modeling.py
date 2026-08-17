@@ -25,6 +25,7 @@ from sklearn.svm import SVR
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 TARGET = "age"
 MODEL_NAMES = ("EN", "Meta EN", "SVM", "Meta SVM", "Mean")
+POINT_MODEL_SOURCE = "fresh_fit_per_resample"
 POINT_COLUMNS = (
     "model",
     "mae",
@@ -325,11 +326,22 @@ def evaluate_training_size(
     output = output_root / spec.name / f"size_{size_index:02d}.parquet"
     provenance_path = output.with_suffix(".provenance.json")
     expected_config = config_record(config)
+    expected_inputs = {
+        "direct_input": str(project_path(spec.direct_path)),
+        "meta_input": str(project_path(spec.meta_path)),
+        "meta_features": list(spec.expected_meta_columns),
+        "point_models": list(MODEL_NAMES),
+        "point_model_source": POINT_MODEL_SOURCE,
+    }
     if output.is_file() and provenance_path.is_file():
         existing = pd.read_parquet(output)
         provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
         validate_point_shard(existing, size_index=size_index, training_size=size, config=config)
-        if provenance.get("dataset") != spec.name or provenance.get("config") != expected_config:
+        if (
+            provenance.get("dataset") != spec.name
+            or provenance.get("config") != expected_config
+            or any(provenance.get(key) != value for key, value in expected_inputs.items())
+        ):
             raise ValueError(f"Existing shard provenance does not match: {output}")
         return output
 
@@ -365,12 +377,14 @@ def evaluate_training_size(
         "dataset": spec.name,
         "title": spec.title,
         "created_utc": datetime.now(timezone.utc).isoformat(),
-        "direct_input": str(project_path(spec.direct_path)),
-        "meta_input": str(project_path(spec.meta_path)),
+        "direct_input": expected_inputs["direct_input"],
+        "meta_input": expected_inputs["meta_input"],
         "training_pool_samples": len(direct_train),
         "test_samples": len(direct_test),
         "direct_features": direct_train.shape[1] - 1,
-        "meta_features": list(spec.expected_meta_columns),
+        "meta_features": expected_inputs["meta_features"],
+        "point_models": expected_inputs["point_models"],
+        "point_model_source": expected_inputs["point_model_source"],
         "size_index": size_index,
         "training_size": size,
         "config": expected_config,

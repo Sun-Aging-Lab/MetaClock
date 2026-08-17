@@ -1,4 +1,4 @@
-"""Plot component ENCV coefficient against absolute gestation-time difference."""
+"""Plot fixed-alpha component coefficient against absolute gestation-time difference."""
 
 import argparse
 from pathlib import Path

@@ -1,4 +1,4 @@
-"""Precompute the shared 90-row directed ENCV coefficient table once."""
+"""Precompute the shared 90-row directed fixed-alpha coefficient table once."""
 
 import argparse
 from pathlib import Path

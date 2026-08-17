@@ -12,9 +12,7 @@ from scipy.stats import pearsonr
 from sklearn.metrics import mean_absolute_error
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_PREDICTIONS = (
-    PROJECT_ROOT / "data/chronological_age_prediction/heldout_predictions_long.csv"
-)  # fill in your path
+DEFAULT_PREDICTIONS = Path("/path/to/your/file")  # fill in your path
 DEFAULT_OUTPUT = PROJECT_ROOT / "results/chronological_age_prediction/heldout_metrics.csv"
 BASE_COLUMNS = {"dataset", "sample_id", "age", "prediction"}
 

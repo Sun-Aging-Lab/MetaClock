@@ -8,40 +8,24 @@ from pathlib import Path
 
 import pandas as pd
 
-try:  # Supports both ``python -m`` and direct-script execution.
-    from .plotting import (
-        COMPONENT_COLORS,
-        COMPONENT_LABELS,
-        DATASETS,
-        add_legend,
-        add_shared_mae_label,
-        configure_manuscript_style,
-        make_dataset_axes,
-        metric_legend_handles,
-        plot_labeled_metrics,
-        save_vector_pair,
-        style_dataset_axis,
-    )
-except ImportError:  # pragma: no cover - exercised by direct CLI invocation.
-    from plotting import (
-        COMPONENT_COLORS,
-        COMPONENT_LABELS,
-        DATASETS,
-        add_legend,
-        add_shared_mae_label,
-        configure_manuscript_style,
-        make_dataset_axes,
-        metric_legend_handles,
-        plot_labeled_metrics,
-        save_vector_pair,
-        style_dataset_axis,
-    )
-
+from .plotting import (
+    COMPONENT_COLORS,
+    COMPONENT_LABELS,
+    DATASETS,
+    add_legend,
+    configure_manuscript_style,
+    finish_layout,
+    make_dataset_axes,
+    metric_legend_handles,
+    plot_labeled_metrics,
+    save_vector_pair,
+    style_dataset_axis,
+)
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_ABLATION_DIR = (
-    PROJECT_ROOT / "data/chronological_age_prediction/component_clock_ablation"
-)  # fill in your path
+    Path("/path/to/your/file")  # fill in your path
+)
 DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "results/chronological_age_prediction/ablation"
 REMOVAL_ORDER = ("zhangblup", "han", "skinandblood")
 UNPLOTTED_LABELS = ("yingcausage",)
@@ -50,7 +34,7 @@ UNPLOTTED_LABELS = ("yingcausage",)
 def read_ablation_metrics(path: Path, step: int) -> pd.DataFrame:
     """Read and validate one cumulative-ablation table without duplicate I/O."""
     raw = pd.read_csv(path)
-    required = {"ablation_step", "removed_clocks"}
+    required = {"dataset", "predictor", "n", "mae", "pearson_r", "ablation_step", "removed_clocks"}
     if missing := required.difference(raw.columns):
         raise ValueError(f"{path} is missing ablation columns: {sorted(missing)}")
     if set(raw["ablation_step"]) != {step}:
@@ -63,11 +47,16 @@ def read_ablation_metrics(path: Path, step: int) -> pd.DataFrame:
         for label in (*COMPONENT_LABELS, *UNPLOTTED_LABELS)
         if label not in REMOVAL_ORDER[:step]
     )
-    required_metrics = {"dataset", "predictor", "mae", "pearson_r"}
-    if missing := required_metrics.difference(raw.columns):
-        raise ValueError(f"{path} is missing metrics columns: {sorted(missing)}")
-    raw[["mae", "pearson_r"]] = raw[["mae", "pearson_r"]].apply(pd.to_numeric, errors="coerce")
-    if raw.isna().any().any():
+    numeric = raw[["n", "mae", "pearson_r", "ablation_step"]].apply(
+        pd.to_numeric, errors="coerce"
+    )
+    invalid_n = (
+        numeric["n"].isna() | (numeric["n"] <= 0) | (numeric["n"] % 1 != 0)
+    )
+    if invalid_n.any():
+        raise ValueError(f"{path} must contain positive integer sample counts in n")
+    raw[["n", "mae", "pearson_r", "ablation_step"]] = numeric
+    if raw[list(required)].isna().any().any():
         raise ValueError(f"{path} contains missing or non-numeric plotting values")
     observed = pd.MultiIndex.from_frame(raw[["dataset", "predictor"]])
     expected = pd.MultiIndex.from_product(
@@ -80,7 +69,11 @@ def read_ablation_metrics(path: Path, step: int) -> pd.DataFrame:
 
 def plot_ablation_step(metrics: pd.DataFrame, step: int, output_dir: Path) -> None:
     """Draw one ablation step, omitting YingCausAge from the displayed series."""
-    retained = tuple(label for label in COMPONENT_LABELS if label not in REMOVAL_ORDER[:step])
+    retained = tuple(
+        label
+        for label in sorted(set(COMPONENT_LABELS).difference({"MetaClock"}))
+        if label not in REMOVAL_ORDER[:step]
+    )
     figure, axes = make_dataset_axes()
     for index, (dataset, axis) in enumerate(zip(DATASETS, axes, strict=True)):
         plot_labeled_metrics(
@@ -90,16 +83,40 @@ def plot_ablation_step(metrics: pd.DataFrame, step: int, output_dir: Path) -> No
             labels=retained,
             colors=COMPONENT_COLORS,
         )
+        # Draw the highlighted retrained MetaClock after the ordinary clocks,
+        # matching the formal SVG PathCollection order and z-order.
+        plot_labeled_metrics(
+            axis,
+            metrics.loc[metrics["dataset"].eq(dataset)],
+            label_column="predictor",
+            labels=("MetaClock",),
+            colors=COMPONENT_COLORS,
+            meta_label="MetaClock",
+        )
         style_dataset_axis(axis, dataset, index)
-    add_shared_mae_label(figure)
+    finish_layout(figure, axes)
     removed = COMPONENT_LABELS[REMOVAL_ORDER[step - 1]]
-    figure.suptitle(f"Cumulative ablation {step}/3: {removed} removed", y=0.98, fontsize=10)
+    title = figure.text(
+        (axes[0].get_position().x0 + axes[-1].get_position().x1) / 2,
+        0.98,
+        f"Cumulative ablation {step}/3: {removed} removed",
+        ha="center",
+        va="top",
+        fontsize=9.5 + 1.0,
+    )
+    figure.canvas.draw()
+    renderer = figure.canvas.get_renderer()
+    dataset_title_top = max(axis.title.get_window_extent(renderer).y1 for axis in axes)
+    title_bound = title.get_window_extent(renderer)
+    target_bottom = dataset_title_top + 5.0 * figure.dpi / 72.0
+    title.set_y(title.get_position()[1] + (target_bottom - title_bound.y0) / figure.bbox.height)
     add_legend(
         figure,
         metric_legend_handles(
-            retained,
+            ("MetaClock", *retained),
             colors=COMPONENT_COLORS,
             display_labels=COMPONENT_LABELS,
+            meta_label="MetaClock",
             meta_display_label="Retrained MetaClock",
         ),
         title="Clock",

@@ -22,8 +22,9 @@ REQUIRED_DIRECTORIES = (
 )
 MACHINE_SPECIFIC_PATH = re.compile(r"(?<![A-Za-z0-9_])/(?:orcd|home|Users)/")
 NUMBERED_FIGURE_REFERENCE = re.compile(r"\bfig(?:ure)?\s*[2-5]\b", re.IGNORECASE)
-INPUT_NAME = re.compile(
-    r"^DEFAULT_[A-Z0-9_]*(?:DATA|INPUT|TABLE|MANIFEST|MODEL|FEATURE|PREDICTION|RESULT|AUDIT|ANNOTATION|PDF|SVG)[A-Z0-9_]*$"
+PLACEHOLDER_PATH = re.compile(r"Path\(\s*['\"]/path/to/your/file['\"]\s*\)")
+RELATIVE_EXTERNAL_PATH = re.compile(
+    r"(?:Path\(\s*['\"](?:data|datasets)/|PROJECT_ROOT\s*/\s*['\"](?:data|datasets)/)"
 )
 
 
@@ -54,21 +55,20 @@ def validate_sources() -> tuple[list[str], int, int]:
             tree = None
         if path != Path(__file__) and MACHINE_SPECIFIC_PATH.search(text):
             errors.append(f"machine-specific absolute path in {relative}")
-        if tree is not None:
+        if tree is not None and path != Path(__file__):
             lines = text.splitlines()
             for node in ast.walk(tree):
                 if not isinstance(node, (ast.Assign, ast.AnnAssign)):
                     continue
-                targets = node.targets if isinstance(node, ast.Assign) else [node.target]
-                names = [target.id for target in targets if isinstance(target, ast.Name)]
-                if not any(INPUT_NAME.match(name) for name in names):
-                    continue
                 segment = "\n".join(lines[node.lineno - 1 : node.end_lineno])
-                if "# fill in your path" not in segment:
+                marked = "# fill in your path" in segment
+                if marked and not PLACEHOLDER_PATH.search(segment):
                     errors.append(
-                        f"unmarked default input in {relative}:{node.lineno}: "
-                        f"{', '.join(names)}"
+                        f"input placeholder is not exactly /path/to/your/file in "
+                        f"{relative}:{node.lineno}"
                     )
+                if not marked and RELATIVE_EXTERNAL_PATH.search(segment):
+                    errors.append(f"relative external input in {relative}:{node.lineno}")
     r_count = 0
     for path in sorted(ROOT.rglob("*.R")):
         r_count += 1
@@ -76,6 +76,12 @@ def validate_sources() -> tuple[list[str], int, int]:
         relative = path.relative_to(ROOT)
         if MACHINE_SPECIFIC_PATH.search(text):
             errors.append(f"machine-specific absolute path in {relative}")
+        for line_number, line in enumerate(text.splitlines(), 1):
+            if "# fill in your path" in line and "/path/to/your/file" not in line:
+                errors.append(
+                    f"R input placeholder is not exactly /path/to/your/file in "
+                    f"{relative}:{line_number}"
+                )
     return errors, python_count, r_count
 
 

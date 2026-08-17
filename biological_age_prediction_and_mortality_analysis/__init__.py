@@ -1,1 +1,1 @@
-"""Biological-age prediction, mortality, and enrichment analysis package."""
+"""BioMetaClock weights, external-disease, and enrichment analysis package."""

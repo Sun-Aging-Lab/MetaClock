@@ -8,6 +8,7 @@ suppressPackageStartupMessages({
     library(GenomeInfoDb)
     library(jsonlite)
     library(minfi)
+    library(rtracklayer)
 })
 
 script_argument <- grep("^--file=", commandArgs(trailingOnly = FALSE), value = TRUE)
@@ -17,8 +18,10 @@ manifest <- jsonlite::read_json(manifest_path, simplifyVector = TRUE)
 config <- manifest$enrichment
 
 default_output <- "results/enrichment/array_union"
+default_chain <- "/path/to/your/file" # fill in your path
 args <- commandArgs(trailingOnly = TRUE)
 output_dir <- if (length(args) >= 1L) args[[1L]] else default_output
+chain_path <- if (length(args) >= 2L) args[[2L]] else default_chain
 if (dir.exists(output_dir) && length(list.files(output_dir, all.files = TRUE, no.. = TRUE))) {
     stop("Refusing to overwrite a non-empty array-union directory: ", output_dir)
 }
@@ -78,19 +81,29 @@ write_bed <- function(table, path) {
     )
 }
 
-ranges_27k <- load_locations(specifications$`27K`, "27K")
+ranges_27k_source <- load_locations(specifications$`27K`, "27K")
 ranges_450k <- load_locations(specifications$`450K`, "450K")
 ranges_epic <- load_locations(specifications$EPIC, "EPIC v1.0 B4")
-# All three selected maintained annotation objects are explicitly hg19. Applying
-# an hg18-to-hg19 chain to these ranges would double-lift coordinates, so the
-# audit records that liftOver is deliberately not applicable.
-source_builds <- vapply(list(ranges_27k, ranges_450k, ranges_epic), function(x) {
-    builds <- unique(as.character(genome(x)))
-    builds <- builds[!is.na(builds) & nzchar(builds)]
-    if (length(builds) != 1L || builds != "hg19") stop("Annotation object is not explicitly hg19")
-    builds
-}, character(1L))
+# The 27K v1.2 object reports hg19 but contains NCBI36 coordinates. The formal
+# audit requires the near-zero pre-lift agreement and exact post-lift agreement.
+before_27k_450k <- compare_shared(ranges_27k_source, ranges_450k)
+if (before_27k_450k$shared < 25000L || before_27k_450k$matches > 100L) {
+    stop("27K package coordinates do not show the expected hg18 signature")
+}
+if (!file.exists(chain_path)) stop("Missing hg18-to-hg19 chain: ", chain_path)
+genome(ranges_27k_source) <- "hg18"
+lifted <- rtracklayer::liftOver(ranges_27k_source, rtracklayer::import.chain(chain_path))
+lift_counts <- S4Vectors::elementNROWS(lifted)
+if (any(lift_counts > 1L)) stop("27K liftOver produced multiply mapped probes")
+ranges_27k <- unlist(lifted[lift_counts == 1L], use.names = FALSE)
+names(ranges_27k) <- names(lifted)[lift_counts == 1L]
+genome(ranges_27k) <- "hg19"
+strand(ranges_27k) <- "*"
+if (length(ranges_27k) != 27574L) stop("Expected 27,574 uniquely lifted 27K probes")
 after_27k_450k <- compare_shared(ranges_27k, ranges_450k)
+if (after_27k_450k$matches != after_27k_450k$shared) {
+    stop("Lifted 27K coordinates do not exactly agree with shared 450K probes")
+}
 after_27k_epic <- compare_shared(ranges_27k, ranges_epic)
 after_450k_epic <- compare_shared(ranges_450k, ranges_epic)
 if (length(after_27k_450k$conflicts) || length(after_27k_epic$conflicts) || length(after_450k_epic$conflicts)) {
@@ -109,7 +122,7 @@ union[, `:=`(
     in_450k = cpg %chin% table_450k$cpg,
     in_epic = cpg %chin% table_epic$cpg,
     coordinate_source = fifelse(cpg %chin% table_450k$cpg, "450K_v1.2",
-        fifelse(cpg %chin% table_epic$cpg, "EPIC_v1.0_B4", "27K_v1.2_hg19"))
+        fifelse(cpg %chin% table_epic$cpg, "EPIC_v1.0_B4", "27K_v1.2_liftOver"))
 )]
 coordinate_duplicates <- union[, .N, by = .(chromosome, position)][N > 1L]
 if (nrow(coordinate_duplicates)) stop("Distinct CpG IDs share a union-background coordinate")
@@ -138,13 +151,19 @@ audit <- list(
     genome = config$genome,
     bed_coordinate_convention = "0-based, half-open [position-1, position)",
     annotation_packages = as.list(expected_versions),
-    source_genome_builds = as.list(setNames(source_builds, c("27K", "450K", "EPIC"))),
     platform_counts = as.list(c(observed_counts, union = nrow(union))),
     liftover_27k = list(
-        status = "not_applied_source_annotation_is_hg19",
-        source_regions = length(ranges_27k),
-        shared_450k = after_27k_450k$shared,
-        matches_450k = after_27k_450k$matches
+        status = "applied_hg18_to_hg19",
+        chain_path = chain_path,
+        chain_sha256 = sha256(chain_path),
+        source_regions = length(ranges_27k_source),
+        uniquely_lifted_regions = length(ranges_27k),
+        unmapped_regions = sum(lift_counts == 0L),
+        multiply_mapped_regions = sum(lift_counts > 1L),
+        shared_450k_before = before_27k_450k$shared,
+        matches_450k_before = before_27k_450k$matches,
+        shared_450k_after = after_27k_450k$shared,
+        matches_450k_after = after_27k_450k$matches
     ),
     cross_platform = list(
         shared_27k_epic = after_27k_epic$shared,

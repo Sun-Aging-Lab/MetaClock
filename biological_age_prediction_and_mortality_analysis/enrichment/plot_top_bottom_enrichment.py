@@ -15,16 +15,13 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from matplotlib import font_manager
 from matplotlib.colors import to_rgba
+from matplotlib.lines import Line2D
 
-try:
-    from ..config import ENRICHMENT
-except ImportError:  # Direct-script fallback with the parent package on PYTHONPATH.
-    from config import ENRICHMENT
+from ..config import ENRICHMENT
+from ..plotting import configure_style as configure_manuscript_style
 
-
-DEFAULT_RESULTS = Path("results/enrichment/rgreat")  # fill in your path
+DEFAULT_RESULTS = Path("results/enrichment/rgreat")
 DEFAULT_OUTPUT = Path("results/enrichment/figures")
 FDR_THRESHOLD = 0.05
 TERMS_PER_PANEL = 5
@@ -54,7 +51,7 @@ DIRECTION_LABELS = {"top": "Top 1,000 CpGs", "bottom": "Bottom 1,000 CpGs"}
 
 def configure_style() -> None:
     """Apply manuscript vector-output and typography settings."""
-    font_manager.findfont("Liberation Sans", fallback_to_default=False)
+    configure_manuscript_style()
     plt.rcParams.update(
         {
             "font.family": "Liberation Sans",
@@ -64,7 +61,17 @@ def configure_style() -> None:
             "xtick.labelsize": 8,
             "ytick.labelsize": 8,
             "axes.linewidth": 0.2,
+            "xtick.major.width": 0.2,
+            "ytick.major.width": 0.2,
+            "xtick.major.size": 2.2,
+            "ytick.major.size": 2.2,
+            "axes.spines.top": False,
+            "axes.spines.right": False,
+            "figure.facecolor": "white",
+            "axes.facecolor": "white",
+            "legend.frameon": False,
             "pdf.fonttype": 42,
+            "ps.fonttype": 42,
             "svg.fonttype": "none",
         }
     )
@@ -86,8 +93,11 @@ def read_top_terms(path: Path) -> tuple[pd.DataFrame, int]:
     if not table[["p_value", "p_adjust"]].apply(lambda column: column.between(0, 1)).all().all():
         raise ValueError(f"{path} contains a P value outside [0, 1].")
     significant = int(table["p_adjust"].lt(FDR_THRESHOLD).sum())
-    plotted = table.sort_values(["p_adjust", "p_value", "term"]).head(TERMS_PER_PANEL).copy()
+    plotted = table.sort_values(
+        ["p_adjust", "p_value", "term"], kind="mergesort"
+    ).head(TERMS_PER_PANEL).copy()
     plotted["minus_log10_fdr"] = -np.log10(plotted["p_adjust"].clip(lower=np.finfo(float).tiny))
+    plotted["significant"] = plotted["p_adjust"].lt(FDR_THRESHOLD)
     return plotted.reset_index(drop=True), significant
 
 
@@ -120,8 +130,8 @@ def plot_pair(
         label = DIRECTION_LABELS[direction]
         y = np.arange(len(table))
         threshold = -math.log10(FDR_THRESHOLD)
-        axis.axvspan(threshold, max_x, color="#009E73", alpha=0.07)
-        axis.axvline(threshold, color="#009E73", linestyle="--", linewidth=0.8)
+        axis.axvspan(threshold, max_x, color="#009E73", alpha=0.07, zorder=0)
+        axis.axvline(threshold, color="#009E73", linestyle="--", linewidth=0.8, zorder=1)
         sizes = 14 + 48 * np.sqrt(table["observed_region_hits"] / max_hits)
         colors = [
             to_rgba(library.color, 0.95 if is_significant else 0.38)
@@ -134,52 +144,61 @@ def plot_pair(
             color=colors,
             edgecolor="#222222",
             linewidth=0.2,
+            zorder=3,
         )
-        axis.set_yticks(y, [textwrap.fill(str(term), 32) for term in table["term"]])
+        axis.set_yticks(
+            y,
+            [textwrap.fill(str(term), 32, break_long_words=False) for term in table["term"]],
+        )
         axis.invert_yaxis()
-        axis.set(xlim=(-0.04 * max_x, max_x), xlabel="−log₁₀(BH-adjusted P)")
-        axis.set_title(f"{label}\nFDR < 0.05: {significant[direction]}", fontweight="bold")
-        axis.grid(axis="x", color="#D0D0D0", linewidth=0.35)
+        axis.set_xlim(-0.04 * max_x, max_x)
+        axis.set_xlabel("−log₁₀(BH-adjusted P)", labelpad=2.0)
+        axis.set_title(
+            f"{label}\nFDR < 0.05: {significant[direction]}", fontweight="bold", pad=4.0
+        )
+        axis.grid(axis="x", color="#D0D0D0", linewidth=0.35, alpha=0.75)
+        axis.set_axisbelow(True)
+        axis.tick_params(axis="x", pad=1.5)
+        axis.tick_params(axis="y", length=0, pad=2.0)
         if significant[direction] == 0:
             axis.text(
-                0.98,
-                0.02,
+                0.5,
+                -0.20,
                 "Top-ranked terms shown",
                 transform=axis.transAxes,
-                ha="right",
-                va="bottom",
+                ha="center",
+                va="top",
                 fontsize=6,
-                color="#555555",
+                color="#666666",
+                clip_on=False,
             )
-    size_examples = sorted(
-        {
-            int(round(max_hits * fraction))
-            for fraction in (0.25, 0.5, 1.0)
-            if max_hits * fraction >= 1
-        }
+    hit_values = sorted(
+        {int(value) for table in tables.values() for value in table["observed_region_hits"]}
     )
+    size_examples = sorted({hit_values[0], hit_values[len(hit_values) // 2], hit_values[-1]})
     size_handles = [
-        axis.scatter(
-            [],
-            [],
-            s=14 + 48 * math.sqrt(value / max_hits),
-            color="#999999",
-            edgecolor="#222222",
-            linewidth=0.2,
-            label=str(value),
-        )
-        for value in size_examples
+        Line2D([0], [0], color="#009E73", linestyle="--", linewidth=0.8, label="FDR = 0.05"),
+        *[
+            Line2D(
+                [0], [0], marker="o", linestyle="none", markerfacecolor=library.color,
+                markeredgecolor="#222222", markeredgewidth=0.2,
+                markersize=math.sqrt(14 + 48 * math.sqrt(value / max_hits)),
+                label=f"Region hits: {value}",
+            )
+            for value in size_examples
+        ],
     ]
     figure.legend(
-        size_handles,
-        [handle.get_label() for handle in size_handles],
-        title="Region hits",
+        handles=size_handles,
         loc="lower center",
-        bbox_to_anchor=(0.5, 0.01),
+        bbox_to_anchor=(0.5, 0.035),
         ncol=len(size_handles),
-        frameon=False,
+        handletextpad=0.5,
+        columnspacing=1.0,
     )
-    figure.suptitle(f"{MODEL_LABELS[model]}: {library.label}", fontsize=7, fontweight="bold")
+    figure.suptitle(
+        f"{MODEL_LABELS[model]}: {library.label}", fontsize=7, fontweight="bold", y=0.955
+    )
     model_name = "chronological" if model == "chrono" else "biological"
     library_name = {
         "go_bp": "go_biological_process",
@@ -189,8 +208,8 @@ def plot_pair(
     }[library.key]
     stem = f"enrichment_{model_name}_{library_name}_top_bottom_1000"
     output_dir.mkdir(parents=True, exist_ok=True)
-    figure.savefig(output_dir / f"{stem}.pdf")
-    figure.savefig(output_dir / f"{stem}.svg")
+    figure.savefig(output_dir / f"{stem}.pdf", facecolor="white")
+    figure.savefig(output_dir / f"{stem}.svg", facecolor="white")
     plt.close(figure)
 
 

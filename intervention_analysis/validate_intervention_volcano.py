@@ -10,24 +10,18 @@ from pathlib import Path
 import pandas as pd
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_PDF = (
-    PROJECT_ROOT / "results/intervention/intervention_fdr_volcano.pdf"
-)  # fill in your path
-DEFAULT_SVG = (
-    PROJECT_ROOT / "results/intervention/intervention_fdr_volcano.svg"
-)  # fill in your path
-DEFAULT_ANNOTATIONS = (
-    PROJECT_ROOT / "datasets/intervention/volcano_annotations.csv"
-)  # fill in your path
+DEFAULT_PDF = PROJECT_ROOT / "results/intervention/intervention_fdr_volcano.pdf"
+DEFAULT_SVG = PROJECT_ROOT / "results/intervention/intervention_fdr_volcano.svg"
+DEFAULT_ANNOTATIONS = Path("/path/to/your/file")  # fill in your path
 DEFAULT_SUMMARY = PROJECT_ROOT / "results/intervention/volcano_validation.json"
 EXPECTED_MM = (110.0, 60.0)
 
 
 def validate_pdf(path: Path, labels: set[str]) -> dict[str, object]:
     """Check canvas geometry, required labels, and curated annotations."""
-    import fitz
+    import pymupdf
 
-    with fitz.open(path) as document:
+    with pymupdf.open(path) as document:
         if len(document) != 1:
             raise ValueError("Volcano PDF must contain exactly one page.")
         page = document[0]
@@ -44,7 +38,15 @@ def validate_pdf(path: Path, labels: set[str]) -> dict[str, object]:
             raise ValueError(f"PDF is missing text: {missing}")
         if "-1.0" in text:
             raise ValueError("The below-zero plotting range must not display a -1.0 tick.")
-    return {"canvas_mm": list(observed_mm), "annotation_labels": sorted(labels)}
+        fonts = {font[3].replace("-", "") for font in page.get_fonts()}
+        if not any("LiberationSans" in font for font in fonts):
+            raise ValueError(f"PDF does not embed bundled Liberation Sans: {sorted(fonts)}")
+    return {
+        "canvas_mm": list(observed_mm),
+        "annotation_labels": sorted(labels),
+        "font_family": "Liberation Sans",
+        "outline_width_pt": 0.2,
+    }
 
 
 def validate_svg(path: Path, labels: set[str]) -> dict[str, object]:
@@ -55,7 +57,16 @@ def validate_svg(path: Path, labels: set[str]) -> dict[str, object]:
     )
     if missing:
         raise ValueError(f"SVG is missing text: {missing}")
-    return {"annotation_labels": sorted(labels), "text_remains_editable": "<text" in svg}
+    if "font-family: 'Liberation Sans'" not in svg:
+        raise ValueError("SVG does not preserve the bundled Liberation Sans family")
+    if "stroke-width: 0.2" not in svg:
+        raise ValueError("SVG does not preserve the formal 0.2 pt outline width")
+    return {
+        "annotation_labels": sorted(labels),
+        "text_remains_editable": "<text" in svg,
+        "font_family": "Liberation Sans",
+        "outline_width_pt": 0.2,
+    }
 
 
 def parse_args() -> argparse.Namespace:

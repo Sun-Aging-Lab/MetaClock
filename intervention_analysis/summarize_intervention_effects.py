@@ -14,11 +14,11 @@ from sklearn.linear_model import LinearRegression
 from statsmodels.stats.multitest import multipletests
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_PREDICTIONS = (
-    PROJECT_ROOT / "results/intervention/sample_predictions.csv"
-)  # fill in your path
+DEFAULT_PREDICTIONS = PROJECT_ROOT / "results/intervention/sample_predictions.csv"
 DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "results/intervention/effects"
-MIN_DONORS_PER_GROUP = 2
+# The current GEO workflow only tests comparisons with at least four donors in
+# each arm.
+MIN_DONORS_PER_GROUP = 4
 
 
 @dataclass(frozen=True)
@@ -49,9 +49,11 @@ def unique_samples_for_age_correction(frame: pd.DataFrame) -> pd.DataFrame:
     if "chronological_age" in frame:
         value_columns.append("chronological_age")
     conflicts = (
-        frame.groupby(["gse_id", "sample_id"], dropna=False)[value_columns]
-        .nunique(dropna=False)
-        .max(axis=1)
+        frame.groupby(["gse_id", "sample_id", "correction_stratum"], dropna=False)[
+            value_columns
+        ]
+            .nunique(dropna=False)
+            .max(axis=1)
     )
     invalid = conflicts.loc[conflicts.gt(1)]
     if not invalid.empty:
@@ -59,7 +61,9 @@ def unique_samples_for_age_correction(frame: pd.DataFrame) -> pd.DataFrame:
             "Repeated gse_id/sample_id rows disagree on predicted or chronological age: "
             f"{invalid.index.tolist()}"
         )
-    return frame.drop_duplicates(["gse_id", "sample_id"], keep="first")
+    return frame.drop_duplicates(
+        ["gse_id", "sample_id", "correction_stratum"], keep="first"
+    )
 
 
 def age_correct(frame: pd.DataFrame) -> pd.DataFrame:
@@ -89,7 +93,11 @@ def donor_means(frame: pd.DataFrame) -> pd.DataFrame:
 
 
 def classify_donor_design(donors: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, str]:
-    """Classify a design without discarding unmatched donors from a mixed comparison."""
+    """Classify the donor design used by the current GEO workflow.
+
+    A partially overlapping design is analyzed as a paired comparison on the
+    shared donors, matching the formal ``donor_level_partial_paired`` branch.
+    """
     control = donors.loc[donors["group"].eq("control")].set_index("donor_id")
     experiment = donors.loc[donors["group"].eq("experiment")].set_index("donor_id")
     if len(control) < MIN_DONORS_PER_GROUP or len(experiment) < MIN_DONORS_PER_GROUP:
@@ -100,9 +108,12 @@ def classify_donor_design(donors: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFr
         return control, experiment, "fully_paired"
     if control.index.intersection(experiment.index).empty:
         return control, experiment, "fully_unpaired"
-    raise ValueError(
-        "Partially overlapping donor groups are ambiguous: refusing to drop unmatched donors"
-    )
+    shared = control.index.intersection(experiment.index)
+    if len(shared) < MIN_DONORS_PER_GROUP:
+        raise ValueError(
+            f"Partially paired comparison needs at least {MIN_DONORS_PER_GROUP} shared donors"
+        )
+    return control.loc[shared], experiment.loc[shared], "partially_paired"
 
 
 def estimate_effect(
@@ -118,7 +129,7 @@ def estimate_effect(
         )
     control_values = control["analysis_predicted_age"].to_numpy(float)
     experiment_values = experiment["analysis_predicted_age"].to_numpy(float)
-    if design == "fully_paired":
+    if design in {"fully_paired", "partially_paired"}:
         p_value = float(ttest_rel(experiment_values, control_values).pvalue)
         effect = float(np.mean(experiment_values - control_values))
         test = "two-sided paired t-test"
@@ -127,7 +138,17 @@ def estimate_effect(
         effect = float(experiment_values.mean() - control_values.mean())
         test = "two-sided Welch t-test"
     if not np.isfinite(p_value):
-        raise ValueError("Intervention test returned a non-finite p-value")
+        # Match scipy's degenerate-data handling in the formal workflow while
+        # keeping the result finite for downstream BH correction.
+        difference = float(np.mean(experiment_values - control_values))
+        degenerate = (
+            np.var(experiment_values - control_values) == 0.0
+            if design in {"fully_paired", "partially_paired"}
+            else np.var(experiment_values) == 0.0 and np.var(control_values) == 0.0
+        )
+        if not degenerate:
+            raise ValueError("Intervention test returned a non-finite p-value")
+        p_value = 1.0 if difference == 0.0 else 0.0
     return EffectEstimate(
         effect=effect,
         p_value=p_value,
@@ -170,12 +191,13 @@ def summarize(frame: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     correction_columns = [
         "gse_id",
         "sample_id",
+        "correction_stratum",
         "analysis_predicted_age",
         "age_adjustment",
     ]
     merged = frame.merge(
         corrected[correction_columns],
-        on=["gse_id", "sample_id"],
+        on=["gse_id", "sample_id", "correction_stratum"],
         how="left",
         validate="many_to_one",
     )

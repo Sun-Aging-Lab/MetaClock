@@ -18,7 +18,7 @@ import pandas as pd
 from matplotlib.axes import Axes
 from matplotlib.ticker import FormatStrFormatter
 
-from .aggregation import SUMMARY_COLUMNS
+from .aggregation import PLOT_MODELS, SUMMARY_COLUMNS
 from .fonts import register_fonts
 from .modeling import DatasetSpec, project_path
 
@@ -90,7 +90,7 @@ def read_plot_summary(path: Path, dataset: str) -> dict[str, pd.DataFrame]:
     frame = pd.read_csv(project_path(path))
     if set(frame.columns) != set(SUMMARY_COLUMNS) or set(frame["dataset"]) != {dataset}:
         raise ValueError(f"Invalid plot summary: {path}")
-    expected = {"EN", "Meta EN", "SVM", "Meta SVM", "Mean"}
+    expected = set(PLOT_MODELS)
     if set(frame["model"]) != expected:
         raise ValueError(f"{path}: model set differs")
     if frame.duplicated(["model", "training_size"]).any():
@@ -180,10 +180,13 @@ def plot_generalization_panel(
     spec: DatasetSpec,
     output_stem: Path,
     *,
+    include_mean_baseline: bool = True,
     universal_mae: float | None = None,
     italic_title: bool = False,
 ) -> tuple[Path, Path]:
-    """Render one paired SVM/EN panel, always including the Mean baseline."""
+    """Render one paired SVM/EN panel with the requested baseline layout."""
+    if universal_mae is not None and not include_mean_baseline:
+        raise ValueError("Universal Clock is only shown in the baseline-comparison layout")
     summaries = read_plot_summary(summary_path, spec.name)
     configure_style()
     figure, (svm_axis, en_axis) = plt.subplots(
@@ -193,32 +196,34 @@ def plot_generalization_panel(
         (svm_axis, "SVM", "Meta SVM"),
         (en_axis, "EN", "Meta EN"),
     ):
+        mean_label = "Mean SVM" if base_label == "SVM" else "Mean EN"
         displayed: list[pd.DataFrame] = []
-        plot_range(
-            axis,
-            summaries["Mean"],
-            "Mean",
-            MEAN_BASELINE_COLOR,
-            "D",
-            0,
-            linestyle="--",
-            linewidth=0.77,
-            fill_alpha=0.08,
-            zorder=1,
-        )
-        displayed.append(summaries["Mean"])
-        if universal_mae is not None:
-            axis.axhline(
-                universal_mae,
-                label="Universal Clock",
-                color=UNIVERSAL_BASELINE_COLOR,
+        if include_mean_baseline:
+            plot_range(
+                axis,
+                summaries[mean_label],
+                "Mean",
+                MEAN_BASELINE_COLOR,
+                "D",
+                0,
                 linestyle="--",
-                linewidth=0.84,
-                zorder=2,
+                linewidth=0.77,
+                fill_alpha=0.08,
+                zorder=1,
             )
-            constant = summaries[base_label][["training_size"]].copy()
-            constant[["mean", "q025", "q975"]] = universal_mae
-            displayed.append(constant)
+            displayed.append(summaries[mean_label])
+            if universal_mae is not None:
+                axis.axhline(
+                    universal_mae,
+                    label="Universal Clock",
+                    color=UNIVERSAL_BASELINE_COLOR,
+                    linestyle="--",
+                    linewidth=0.84,
+                    zorder=2,
+                )
+                constant = summaries[base_label][["training_size"]].copy()
+                constant[["mean", "q025", "q975"]] = universal_mae
+                displayed.append(constant)
         plot_range(axis, summaries[base_label], base_label, BASELINE_COLOR, "o", -1, linewidth=0.70)
         plot_range(axis, summaries[meta_label], meta_label, META_COLOR, "s", 1, linewidth=0.98)
         displayed.extend((summaries[base_label], summaries[meta_label]))
@@ -254,10 +259,12 @@ def plot_group_main(
     for name in args.dataset or list(specs):
         spec = specs[name]
         summary = args.summary_root / f"{name}_plot_summary.csv"
-        outputs = plot_generalization_panel(
-            summary,
-            spec,
-            args.output_dir / f"{name}_fewshot_clock_mi_svm_with_mean_baseline",
-        )
-        print(*outputs, sep="\n")
+        for suffix, include_mean_baseline in (("", False), ("_with_mean_baseline", True)):
+            outputs = plot_generalization_panel(
+                summary,
+                spec,
+                args.output_dir / f"{name}_fewshot_clock_mi_svm{suffix}",
+                include_mean_baseline=include_mean_baseline,
+            )
+            print(*outputs, sep="\n")
     return 0

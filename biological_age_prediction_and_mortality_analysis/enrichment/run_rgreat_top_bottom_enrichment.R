@@ -16,9 +16,9 @@ if (!identical(as.character(utils::packageVersion("rGREAT")), config$rGREAT_vers
     stop("This workflow requires rGREAT ", config$rGREAT_version)
 }
 
-default_input_dir <- "results/enrichment/inputs" # fill in your path
-default_background <- "results/enrichment/array_union/background_27k_450k_epic_union_hg19.bed.gz" # fill in your path
-default_gene_sets <- "data/enrichment/gene_sets" # fill in your path
+default_input_dir <- "results/enrichment/inputs"
+default_background <- "results/enrichment/array_union/background_27k_450k_epic_union_hg19.bed.gz"
+default_gene_sets <- "/path/to/your/file" # fill in your path
 default_output_dir <- "results/enrichment/rgreat"
 args <- commandArgs(trailingOnly = TRUE)
 if (length(args) < 2L) {
@@ -92,6 +92,22 @@ map_symbol_sets_to_entrez <- function(gene_sets, output_dir) {
     )
     term_audit$mapped_unique_entrez[is.na(term_audit$mapped_unique_entrez)] <- 0L
     utils::write.csv(term_audit, file.path(output_dir, "gene_set_term_mapping_audit.csv"), row.names = FALSE)
+    mapped_symbols <- unique(mapped[mapped$mapped, c("symbol", "entrez_id")])
+    audit <- data.frame(
+        library = library_name,
+        source = normalizePath(file.path(gene_set_dir, paste0(library_name, ".gmt")), mustWork = TRUE),
+        mapping_method = "org.Hs.eg.db SYMBOL to all ENTREZID mappings",
+        input_terms = length(gene_sets),
+        input_unique_symbols = length(unique(pairs$symbol)),
+        mapped_unique_symbols = length(unique(mapped_symbols$symbol)),
+        unmapped_unique_symbols = length(setdiff(unique(pairs$symbol), mapped_symbols$symbol)),
+        unique_symbol_entrez_pairs = nrow(mapped_symbols),
+        mapped_unique_entrez_ids = length(unique(mapped_symbols$entrez_id)),
+        terms_with_any_entrez_id = sum(lengths(sets) > 0L),
+        terms_with_at_least_5_entrez_ids = sum(lengths(sets) >= min_gene_set_size),
+        stringsAsFactors = FALSE
+    )
+    utils::write.csv(audit, file.path(output_dir, "gene_set_mapping_audit.csv"), row.names = FALSE)
     sets
 }
 
@@ -105,6 +121,15 @@ gene_sets <- if (library_name == "go_bp") {
     utils::write.csv(
         data.frame(term = character(), symbol = character(), entrez_id = character(), mapped = logical()),
         file.path(model_output_dir, "gene_set_symbol_entrez_mapping.csv"), row.names = FALSE
+    )
+    utils::write.csv(
+        data.frame(
+            library = library_name,
+            source = "rGREAT built-in GO:BP (org.Hs.eg.db annotations; GO.db ontology metadata)",
+            mapping_method = "built-in Entrez-ID GO gene sets; no SYMBOL conversion",
+            stringsAsFactors = FALSE
+        ),
+        file.path(model_output_dir, "gene_set_mapping_audit.csv"), row.names = FALSE
     )
     "GO:BP"
 } else {

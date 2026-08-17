@@ -11,21 +11,15 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-try:
-    from ..config import ENRICHMENT, EXCLUDED_MODELS
-    from ..provenance import sha256
-except ImportError:  # Direct-script fallback with the parent package on PYTHONPATH.
-    from config import ENRICHMENT, EXCLUDED_MODELS
-    from provenance import sha256
+from ..config import ENRICHMENT, EXCLUDED_MODELS
+from ..provenance import sha256
 
-
-DEFAULT_MEMBERSHIP = Path(
-    "results/enrichment/array_union/platform_membership.csv.gz"
-)  # fill in your path
-DEFAULT_INPUTS = Path("results/enrichment/inputs")  # fill in your path
-DEFAULT_RANKINGS = Path("results/enrichment/rankings")  # fill in your path
-DEFAULT_RESULTS = Path("results/enrichment/rgreat")  # fill in your path
-DEFAULT_FIGURES = Path("results/enrichment/figures")  # fill in your path
+DEFAULT_MEMBERSHIP = Path("results/enrichment/array_union/platform_membership.csv.gz")
+DEFAULT_INPUTS = Path("results/enrichment/inputs")
+DEFAULT_RANKINGS = Path("results/enrichment/rankings")
+DEFAULT_RESULTS = Path("results/enrichment/rgreat")
+DEFAULT_FIGURES = Path("results/enrichment/figures")
+DEFAULT_PUBLISHED_WEIGHTS = Path(__file__).with_name("top_bottom_1000_cpg_weights.csv")
 POINTS_PER_MM = 72 / 25.4
 
 
@@ -70,14 +64,14 @@ def validate_union(membership_path: Path) -> tuple[pd.DataFrame, dict[str, int]]
     }:
         raise ValueError("Array annotation packages are not the pinned 27K/450K/EPIC manifests.")
     liftover, cross = audit.get("liftover_27k", {}), audit.get("cross_platform", {})
-    if audit.get("source_genome_builds") != {"27K": "hg19", "450K": "hg19", "EPIC": "hg19"}:
-        raise ValueError("Array annotation genome-build audit is not explicitly hg19.")
-    if liftover.get("status") != "not_applied_source_annotation_is_hg19":
-        raise ValueError(
-            "27K annotation must not be double-lifted from its maintained hg19 object."
-        )
-    if liftover.get("matches_450k") != liftover.get("shared_450k"):
-        raise ValueError("27K/450K maintained hg19 coordinates do not fully agree.")
+    if liftover.get("status") != "applied_hg18_to_hg19":
+        raise ValueError("27K v1.2 coordinates were not lifted from hg18 to hg19.")
+    if liftover.get("matches_450k_before", 10**9) > 100:
+        raise ValueError("27K pre-lift coordinate audit lacks the expected hg18 signature.")
+    if liftover.get("matches_450k_after") != liftover.get("shared_450k_after"):
+        raise ValueError("Lifted 27K coordinates do not fully agree with 450K v1.2.")
+    if liftover.get("uniquely_lifted_regions") != 27574 or liftover.get("unmapped_regions") != 4:
+        raise ValueError("27K liftOver counts differ from the formal audit.")
     if (
         cross.get("identifier_coordinate_conflicts") != 0
         or cross.get("duplicate_union_coordinates") != 0
@@ -249,7 +243,7 @@ def validate_results(results_dir: Path) -> int:
 
 def validate_vectors(figure_dir: Path) -> int:
     """Require the eight semantic 150 x 75 mm PDF/SVG vector pairs."""
-    import fitz
+    import pymupdf
 
     count = 0
     library_names = {
@@ -263,7 +257,7 @@ def validate_vectors(figure_dir: Path) -> int:
             pdf, svg = figure_dir / f"{stem}.pdf", figure_dir / f"{stem}.svg"
             if not pdf.is_file() or not svg.is_file():
                 raise FileNotFoundError(f"Missing vector pair: {stem}")
-            document = fitz.open(pdf)
+            document = pymupdf.open(pdf)
             expected = (150 * POINTS_PER_MM, 75 * POINTS_PER_MM)
             if len(document) != 1 or any(
                 abs(a - b) > 0.02
@@ -279,6 +273,31 @@ def validate_vectors(figure_dir: Path) -> int:
     return count
 
 
+def validate_published_weights(path: Path) -> int:
+    """Validate the compact top/bottom CpG-weight publication table."""
+    table = pd.read_csv(path)
+    required = ["group", "direction", "rank", "cpg", "weight"]
+    if table.columns.tolist() != required:
+        raise ValueError("Published CpG weights do not have the required ordered schema.")
+    groups = {"chronological", "biological"}
+    if set(table["group"]) != groups or set(table["direction"]) != set(
+        ENRICHMENT["directions"]
+    ):
+        raise ValueError("Published CpG weights contain an unexpected group or direction.")
+    for keys, subset in table.groupby(["group", "direction"], sort=False):
+        if len(subset) != ENRICHMENT["top_n"] or subset["cpg"].duplicated().any():
+            raise ValueError(f"Published CpG weight group {keys} is incomplete or duplicated.")
+        if subset["rank"].tolist() != list(range(1, ENRICHMENT["top_n"] + 1)):
+            raise ValueError(f"Published CpG weight ranks are invalid for {keys}.")
+        weights = pd.to_numeric(subset["weight"], errors="raise").to_numpy(float)
+        if not np.isfinite(weights).all():
+            raise ValueError(f"Published CpG weights are non-finite for {keys}.")
+        expected = np.sort(weights)[::-1] if keys[1] == "top" else np.sort(weights)
+        if not np.array_equal(weights, expected):
+            raise ValueError(f"Published CpG weights are not sorted for {keys}.")
+    return len(table)
+
+
 def main() -> int:
     """Run focused validators and write a concise machine-readable summary."""
     parser = argparse.ArgumentParser(description=__doc__)
@@ -287,6 +306,7 @@ def main() -> int:
     parser.add_argument("--rankings-dir", type=Path, default=DEFAULT_RANKINGS)
     parser.add_argument("--results-dir", type=Path, default=DEFAULT_RESULTS)
     parser.add_argument("--figure-dir", type=Path, default=DEFAULT_FIGURES)
+    parser.add_argument("--published-weights", type=Path, default=DEFAULT_PUBLISHED_WEIGHTS)
     args = parser.parse_args()
     membership, counts = validate_union(args.membership)
     report: dict[str, Any] = {
@@ -295,6 +315,7 @@ def main() -> int:
         "foreground_rows": validate_foregrounds(membership, args.inputs_dir, args.rankings_dir),
         "result_tables": validate_results(args.results_dir),
         "vector_pairs": validate_vectors(args.figure_dir),
+        "published_weight_rows": validate_published_weights(args.published_weights),
         "globally_excluded_component": "dnamfitage",
     }
     (args.figure_dir / "validation_summary.json").write_text(

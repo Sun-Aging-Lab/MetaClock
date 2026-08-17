@@ -1,4 +1,4 @@
-"""Plot component ENCV coefficient against molecular evolutionary distance."""
+"""Plot fixed-alpha component coefficient against molecular evolutionary distance."""
 
 import argparse
 from pathlib import Path

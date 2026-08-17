@@ -11,17 +11,12 @@ import pandas as pd
 from scipy.stats import ttest_ind
 from sklearn.linear_model import LinearRegression
 
-try:
-    from .config import EXTERNAL_MODELS, FIGURE4
-    from .provenance import file_record, software_versions, write_json
-except ImportError:  # Direct-script fallback.
-    from config import EXTERNAL_MODELS, FIGURE4
-    from provenance import file_record, software_versions, write_json
-
+from .config import EXTERNAL_MODELS, FIGURE4
+from .provenance import file_record, software_versions, write_json
 
 DEFAULT_PREDICTIONS = Path(
     "results/figure4/external_predictions/external_disease_predictions.csv"
-)  # fill in your path
+)
 DEFAULT_OUTPUT = Path("results/figure4/external_disease")
 KEYS = ["dataset", "disease", "sample_id", "age", "group"]
 
@@ -119,9 +114,9 @@ def main() -> int:
     predictions, age_fits, tests = age_correct_and_test(input_table)
     args.output_dir.mkdir(parents=True, exist_ok=True)
     output_paths = {
-        "predictions": args.output_dir / "external_disease_age_corrected_predictions.csv",
-        "age_fits": args.output_dir / "external_disease_age_fits.csv",
-        "tests": args.output_dir / "external_disease_tests.csv",
+        "predictions": args.output_dir / "03_external_disease_three_model_predictions.csv",
+        "age_fits": args.output_dir / "03_external_disease_age_fits_by_dataset.csv",
+        "tests": args.output_dir / "03_external_disease_three_model_all_datasets.csv",
     }
     predictions.to_csv(output_paths["predictions"], index=False)
     age_fits.to_csv(output_paths["age_fits"], index=False)

@@ -11,21 +11,21 @@ EXPECTED_SIZE_PT = (180 / 25.4 * 72, 65 / 25.4 * 72)
 DEFAULT_OUTPUT_ROOT = PROJECT_ROOT / "results/chronological_age_prediction"
 EXPECTED_STEMS = (
     "scatter/pearson_mae_model_architecture",
-    "scatter/pearson_mae_component_clock",
+    "scatter/pearson_mae_submodel",
     "ablation/ablation_step_01_without_zhangblup",
     "ablation/ablation_step_02_without_han",
     "ablation/ablation_step_03_without_skinandblood",
-    "architecture_comparison/pearson_mae_component_and_architecture",
+    "architecture_comparison/pearson_mae_submodel_architectures",
 )
 
 
 def validate_pdf(path: Path) -> None:
     """Validate a one-page PDF canvas and its embedded Liberation Sans font."""
-    import fitz
+    import pymupdf
 
     if not path.is_file():
         raise FileNotFoundError(path)
-    with fitz.open(path) as document:
+    with pymupdf.open(path) as document:
         if len(document) != 1:
             raise ValueError(f"{path} has {len(document)} pages; expected one")
         observed = (document[0].rect.width, document[0].rect.height)

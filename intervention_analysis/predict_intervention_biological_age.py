@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Apply a frozen biological MetaClock to intervention component predictions."""
+"""Apply the trained biological MetaClock to intervention component predictions."""
 
 from __future__ import annotations
 
@@ -11,16 +11,10 @@ import numpy as np
 import pandas as pd
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_MODEL = PROJECT_ROOT / "results/intervention/model/biometaclock.joblib"  # fill in your path
-DEFAULT_FEATURES = (
-    PROJECT_ROOT / "results/intervention/model/biometaclock_features.csv"
-)  # fill in your path
-DEFAULT_COMPONENT_PREDICTIONS = (
-    PROJECT_ROOT / "datasets/intervention/component_predictions.csv"
-)  # fill in your path
-DEFAULT_SAMPLE_MANIFEST = (
-    PROJECT_ROOT / "datasets/intervention/sample_manifest.csv"
-)  # fill in your path
+DEFAULT_MODEL = PROJECT_ROOT / "results/intervention/model/biometaclock.joblib"
+DEFAULT_FEATURES = PROJECT_ROOT / "results/intervention/model/biometaclock_features.csv"
+DEFAULT_COMPONENT_PREDICTIONS = Path("/path/to/your/file")  # fill in your path
+DEFAULT_SAMPLE_MANIFEST = Path("/path/to/your/file")  # fill in your path
 DEFAULT_OUTPUT = PROJECT_ROOT / "results/intervention/sample_predictions.csv"
 KEY = "sample_id"
 

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import importlib.util
 import tempfile
 import unittest
 from pathlib import Path
@@ -13,10 +12,14 @@ import pandas as pd
 from biological_age_prediction_and_mortality_analysis.analyze_external_disease_differences import (
     age_correct_and_test,
 )
+from biological_age_prediction_and_mortality_analysis.apply_biometaclock_weights import (
+    load_frozen_weights,
+    predict_biometaclock,
+)
 from biological_age_prediction_and_mortality_analysis.config import (
     ENRICHMENT,
     EXCLUDED_MODELS,
-    FIGURE4_COMPONENTS,
+    EXTERNAL_COMPONENTS,
 )
 from biological_age_prediction_and_mortality_analysis.enrichment.build_component_weight_rankings import (  # noqa: E501
     build_ranking,
@@ -25,49 +28,27 @@ from biological_age_prediction_and_mortality_analysis.enrichment.build_component
 from biological_age_prediction_and_mortality_analysis.enrichment.select_top_bottom_cpg_foregrounds import (  # noqa: E501
     select_foregrounds,
 )
-from biological_age_prediction_and_mortality_analysis.generate_inchianti_oof_predictions import (
-    assign_age_bin_folds,
-)
-from biological_age_prediction_and_mortality_analysis.modeling import (
-    ALPHAS,
-    CV_FOLDS,
-    MAX_ITER,
-    fit_scaled_elasticnet_cv,
-    validate_component_features,
-)
 
 
-class ManifestAndModelTests(unittest.TestCase):
-    """Check exact manifests and leakage-safe Elastic Net configuration."""
+class ManifestAndWeightTests(unittest.TestCase):
+    """Check the public manifest and frozen BioMetaClock representation."""
 
     def test_manifest_has_exact_exclusion_and_features(self) -> None:
         self.assertEqual(EXCLUDED_MODELS, {"dnamfitage"})
-        self.assertEqual(len(FIGURE4_COMPONENTS), 17)
-        self.assertEqual((len(ALPHAS), CV_FOLDS), (30, 5))
+        self.assertEqual(len(EXTERNAL_COMPONENTS), 17)
         self.assertEqual(len(ENRICHMENT["chronological_candidates"]), 16)
         self.assertEqual(len(ENRICHMENT["chronological_affine_components"]), 8)
         self.assertEqual(len(ENRICHMENT["biological_candidates"]), 19)
         self.assertEqual(len(ENRICHMENT["biological_affine_components"]), 17)
-        self.assertGreaterEqual(MAX_ITER, 20_000)
-        validate_component_features(list(FIGURE4_COMPONENTS))
-        with self.assertRaises(ValueError):
-            validate_component_features(list(reversed(FIGURE4_COMPONENTS)))
 
-    def test_fold_local_scaled_grid_search(self) -> None:
+    def test_frozen_weights_predict_on_raw_scale(self) -> None:
+        weights, intercept = load_frozen_weights()
         rng = np.random.default_rng(17)
-        x = rng.normal(size=(60, 4)) * np.array([1.0, 10.0, 0.1, 3.0])
-        y = 2.0 * x[:, 0] - 0.2 * x[:, 1] + rng.normal(scale=0.2, size=60)
-        fitted = fit_scaled_elasticnet_cv(x, y, n_jobs=1)
-        self.assertEqual(list(fitted.model.named_steps), ["scaler", "elasticnet"])
-        self.assertIn(fitted.alpha, ALPHAS)
-        self.assertEqual(len(fitted.alpha_search), 30)
-        self.assertLess(fitted.n_iter, MAX_ITER)
-
-    def test_age_bin_fold_assignment_is_deterministic(self) -> None:
-        age = pd.Series(np.repeat([30, 40, 50, 60, 70], 7))
-        first, second = assign_age_bin_folds(age, 5, 0), assign_age_bin_folds(age, 5, 0)
-        np.testing.assert_array_equal(first, second)
-        self.assertEqual(set(first), set(range(5)))
+        components = pd.DataFrame(
+            rng.normal(size=(11, len(weights))), columns=weights["feature"]
+        )
+        expected = intercept + components.to_numpy() @ weights["raw_coefficient"].to_numpy()
+        np.testing.assert_allclose(predict_biometaclock(components), expected, rtol=0, atol=1e-12)
 
 
 class ExternalAndEnrichmentTests(unittest.TestCase):
@@ -121,6 +102,26 @@ class ExternalAndEnrichmentTests(unittest.TestCase):
         )
         self.assertEqual(len(contributions), 2 * len(components))
 
+    def test_published_top_bottom_weight_table(self) -> None:
+        path = (
+            Path(__file__).parents[1] / "enrichment" / "top_bottom_1000_cpg_weights.csv"
+        )
+        table = pd.read_csv(path)
+        self.assertEqual(
+            set(table.columns), {"group", "direction", "rank", "cpg", "weight"}
+        )
+        counts = table.groupby(["group", "direction"]).size()
+        self.assertEqual(
+            counts.to_dict(),
+            {
+                ("biological", "bottom"): 1000,
+                ("biological", "top"): 1000,
+                ("chronological", "bottom"): 1000,
+                ("chronological", "top"): 1000,
+            },
+        )
+        self.assertFalse(table.duplicated(["group", "direction", "cpg"]).any())
+
     def test_foregrounds_are_exact_deterministic_extremes(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -144,36 +145,6 @@ class ExternalAndEnrichmentTests(unittest.TestCase):
             self.assertEqual(top["cpg"].tolist(), ["cg1", "cg3"])
             self.assertEqual(bottom["cpg"].tolist(), ["cg4", "cg2"])
             self.assertEqual(audit["top"]["regions"], 2)
-
-
-@unittest.skipUnless(importlib.util.find_spec("lifelines"), "lifelines is not installed")
-class MortalityTests(unittest.TestCase):
-    """Check formal KM schemas when the project survival dependency is installed."""
-
-    def test_floor_tail_and_km_audit_schema(self) -> None:
-        from biological_age_prediction_and_mortality_analysis.analyze_mortality_associations import (  # noqa: E501
-            fit_tail_survival,
-        )
-
-        rows = [
-            {
-                "model": model,
-                "sampleID": f"{model}_{index}",
-                "age_corrected_prediction": index,
-                "survival_time": 1 + index % 6,
-                "event": int(index % 3 != 0),
-            }
-            for model in ("bio_metaclock", "baseline", "clinical_phenoage")
-            for index in range(11)
-        ]
-        curves, tests = fit_tail_survival(pd.DataFrame(rows))
-        self.assertTrue(
-            {"time", "survival", "ci_lower", "ci_upper", "n_at_risk", "n_events"}.issubset(curves)
-        )
-        self.assertTrue(tests[["bottom_20_n", "top_20_n"]].eq(2).all().all())
-        self.assertTrue(
-            {"observed_top_events", "expected_top_events", "logrank_variance"}.issubset(tests)
-        )
 
 
 if __name__ == "__main__":

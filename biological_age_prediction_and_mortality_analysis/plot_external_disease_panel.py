@@ -1,4 +1,4 @@
-"""Render the Figure 4 external disease-control difference heatmap."""
+"""Render the external disease-control difference heatmap."""
 
 from __future__ import annotations
 
@@ -9,13 +9,8 @@ import numpy as np
 import pandas as pd
 from matplotlib.colors import LinearSegmentedColormap
 
-try:
-    from .config import EXTERNAL_MODELS
-    from .plotting import LABELS, save_vector_pair
-except ImportError:  # Direct-script fallback.
-    from config import EXTERNAL_MODELS
-    from plotting import LABELS, save_vector_pair
-
+from .config import EXTERNAL_MODELS
+from .plotting import LABELS, save_vector_pair
 
 DISEASE_LABELS = {
     "sclerosis": "SSc",
@@ -68,7 +63,11 @@ def build_heatmap_source(tests: pd.DataFrame) -> pd.DataFrame:
     source["disease_label"] = source["disease"].map(DISEASE_LABELS)
     if source["disease_label"].isna().any():
         raise ValueError("Missing an external-disease display abbreviation.")
-    return source
+    source["significance"] = source["bonferroni_p_value"].map(significance)
+    source["model_order"] = source["model"].map(
+        {model: index for index, model in enumerate(EXTERNAL_MODELS)}
+    )
+    return source.sort_values(["disease_order", "model_order"]).reset_index(drop=True)
 
 
 def plot_external_disease_heatmap(tests_path: Path, output_dir: Path) -> None:
@@ -107,7 +106,9 @@ def plot_external_disease_heatmap(tests_path: Path, output_dir: Path) -> None:
         bottom=0.27 * 50 * 1.2 / 60,
         top=0.94 * 50 * 1.2 / 60,
     )
-    cmap = LinearSegmentedColormap.from_list("disease", ["#3C5488", "#F7F7F7", "#E64B35"])
+    cmap = LinearSegmentedColormap.from_list(
+        "disease", ["#3C5488", "#F7F7F7", "#E64B35"], N=257
+    )
     image = axis.imshow(values, cmap=cmap, vmin=-6, vmax=6, aspect="auto")
     axis.set_xticks(range(3), [LABELS[model] for model in EXTERNAL_MODELS], rotation=25, ha="right")
     axis.set_yticks(range(len(keys)), ordered["disease_label"])
@@ -123,9 +124,19 @@ def plot_external_disease_heatmap(tests_path: Path, output_dir: Path) -> None:
             va="center",
             fontsize=6,
             color="white" if abs(values[row, column]) >= 3.9 else "#111111",
+            linespacing=0.9,
         )
-    colorbar = figure.colorbar(image, ax=axis, fraction=0.055, pad=0.04)
+    axis.set_xticks(np.arange(-0.5, values.shape[1], 1), minor=True)
+    axis.set_yticks(np.arange(-0.5, values.shape[0], 1), minor=True)
+    axis.grid(which="minor", color="#F7F7F7", linewidth=0.35)
+    axis.tick_params(which="minor", bottom=False, left=False)
+    colorbar = figure.colorbar(image, ax=axis, fraction=0.055, pad=0.04, shrink=0.9)
+    colorbar.solids.set_rasterized(False)
+    colorbar.solids.set_edgecolor("face")
+    colorbar.set_ticks([-6, -4, -2, 0, 2, 4, 6])
     colorbar.set_label("Δ predicted phenoage")
+    colorbar.ax.tick_params(labelsize=8)
+    colorbar.outline.set_linewidth(0.2)
     output_dir.mkdir(parents=True, exist_ok=True)
-    source.to_csv(output_dir / "external_disease_heatmap_source_data.csv", index=False)
-    save_vector_pair(figure, output_dir, "external_disease_heatmap")
+    source.to_csv(output_dir / "03_external_disease_heatmap_source_data.csv", index=False)
+    save_vector_pair(figure, output_dir, "03_external_disease_heatmap")

@@ -1,4 +1,4 @@
-"""Plot component ENCV coefficient against absolute maximum-lifespan difference."""
+"""Plot fixed-alpha component coefficient against maximum-lifespan difference."""
 
 import argparse
 from pathlib import Path

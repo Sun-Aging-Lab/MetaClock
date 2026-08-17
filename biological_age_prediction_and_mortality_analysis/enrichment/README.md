@@ -4,6 +4,12 @@ This subworkflow builds and validates the current top/bottom-1,000 GREAT
 analysis from normalized MetaClock/component coefficient inputs. It does not
 contain intervention or volcano analyses.
 
+`top_bottom_1000_cpg_weights.csv` is the compact publication table for the
+selected foregrounds. Its 4,000 rows record `group` (`chronological` or
+`biological`), `direction`, deterministic `rank`, CpG identifier, and the exact
+aggregate weight used for selection. Each group/direction contains exactly
+1,000 unique CpGs.
+
 ## Fixed scientific definition
 
 - The chronological manifest records all 16 candidate clocks. Eight pass the
@@ -44,11 +50,13 @@ to SHA-256 hashes. Foreground selection verifies this summary before proceeding.
 ## Array and mapping audits
 
 `build_27k_450k_epic_union_background.R` uses pinned maintained Bioconductor
-annotation packages. All selected annotation objects are explicitly hg19, so it
-audits that build and deliberately refuses the scientifically invalid operation
-of applying an hg18-to-hg19 chain a second time. It requires cross-platform
-coordinate agreement, rejects ID-coordinate conflicts and duplicate union
-coordinates, and hashes the manifest, membership, and BED output.
+annotation packages. The 27K v1.2 annotation is lifted from hg18 to hg19 with a
+user-supplied UCSC chain through `rtracklayer`; the audit records chain SHA-256,
+source/mapped/unmapped counts, and coordinate concordance with probes shared by
+450K before and after lifting. The 450K v1.2 and EPIC v1.0 B4 annotations are
+already hg19. The workflow rejects post-lift cross-platform conflicts and
+duplicate union coordinates, and hashes the manifest, membership, and BED
+output.
 
 For KEGG, Reactome, and Hallmark, `AnnotationDbi::select` with `org.Hs.eg.db`
 maps SYMBOL to ENTREZID. Mappings are deduplicated per `(term, entrez_id)` before
@@ -84,7 +92,7 @@ recompute deterministic foreground extremes, check union/BED coordinates,
 enforce every manifest-derived rGREAT parameter, compare the exact FDR subset,
 validate term-level Entrez deduplication, and check the 150 x 75 mm PDF/SVG pairs.
 
-KEGG, Reactome, and Hallmark are frozen GMT snapshots in the configured relative
+KEGG, Reactome, and Hallmark are version-pinned GMT snapshots in the configured external
 gene-set directory. Record their own source/version checksums alongside the input
 data. The R environment requires rGREAT 2.8.0 and the package versions pinned in
 the array annotation audit.

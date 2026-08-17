@@ -1,0 +1,29 @@
+{
+  "model": "BioMetaClock",
+  "training_participants": 672,
+  "features_file_order": "biometaclock_672_participants_weights.csv",
+  "feature_count": 17,
+  "estimator": "StandardScaler followed by ElasticNet",
+  "alpha": 0.018873918221350965,
+  "standardized_intercept": 59.080727194838552,
+  "raw_intercept": -1.3277755940078535,
+  "n_iter": 119,
+  "max_iter": 100000,
+  "coefficient_formula": "raw_coefficient = standardized_coefficient / scaler_scale",
+  "prediction_formula": "raw_intercept + X @ raw_coefficient",
+  "source_artifact": "restricted all-672 fitted artifact; not distributed",
+  "source_artifact_sha256": "1db9b3ba71f6d3458904f7afae05d53f01ea345e316f3ab52c814ef278ef7b9f",
+  "source_feature_manifest": "feature order embedded in biometaclock_672_participants_weights.csv",
+  "training_software": {
+    "scikit-learn": "1.8.0",
+    "numpy": "not recorded in joblib artifact",
+    "pandas": "not recorded in joblib artifact"
+  },
+  "extraction_software": {
+    "scikit-learn": "1.7.2",
+    "numpy": "2.3.5",
+    "pandas": "2.3.3",
+    "joblib": "1.5.2"
+  },
+  "restricted_data_note": "This repository publishes fitted BioMetaClock coefficients only; restricted InCHIANTI participant data and training/OOF code are not included."
+}

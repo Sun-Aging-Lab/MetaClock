@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -9,9 +10,10 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from generalization.aggregation import aggregate_dataset
+from generalization.aggregation import PLOT_MODELS, aggregate_dataset
 from generalization.modeling import (
     MODEL_NAMES,
+    POINT_MODEL_SOURCE,
     DatasetSpec,
     ElasticNetConfig,
     GeneralizationConfig,
@@ -27,14 +29,18 @@ from generalization.plotting import plot_generalization_panel
 from generalization.species.evolution_plot_common import (
     EvolutionConfig,
     load_distances,
-    nonnegative_component_encv,
+    nonnegative_component_elastic_net,
     plot_evolution_relationship,
-    spline_encv,
+    spline_elastic_net,
 )
 from generalization.species.species_config import MLP_LOO_ROOT, SPECIES, mlp_loo_path
-from generalization.species.train_species_mlp_elu_components import safe_batch_size
+from generalization.species.train_species_mlp_elu_components import (
+    component_feature_columns,
+    safe_batch_size,
+)
 from generalization.validate_generalization_outputs import (
     ExpectedPanel,
+    expected_panels,
     validate_pdf,
     validate_svg,
 )
@@ -74,6 +80,11 @@ class ModelingTests(unittest.TestCase):
             )
             first = evaluate_training_size(spec, 0, root / "shards", config=config)
             first_mtime = first.stat().st_mtime_ns
+            shard = pd.read_parquet(first)
+            self.assertEqual(set(shard["model"]), set(MODEL_NAMES))
+            provenance = json.loads(first.with_suffix(".provenance.json").read_text())
+            self.assertEqual(provenance["point_models"], list(MODEL_NAMES))
+            self.assertEqual(provenance["point_model_source"], POINT_MODEL_SOURCE)
             second = evaluate_training_size(spec, 0, root / "shards", config=config)
             self.assertEqual((first, first_mtime), (second, second.stat().st_mtime_ns))
 
@@ -112,6 +123,10 @@ class ModelingTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "at least two"):
             safe_batch_size(1, 32)
 
+    def test_mlp_components_retain_cg_and_rs_probes(self) -> None:
+        frame = pd.DataFrame({"age": [1.0], "cg0001": [0.2], "rs123": [0.8]})
+        self.assertEqual(component_feature_columns(frame), ["cg0001", "rs123"])
+
     def test_strict_aggregation_accepts_complete_grid(self) -> None:
         config = GeneralizationConfig(n_resamples=2, n_training_sizes=2)
         spec = DatasetSpec("Synthetic", "Synthetic", Path("d"), Path("m"), ("c",))
@@ -144,24 +159,90 @@ class ModelingTests(unittest.TestCase):
                         "training_pool_samples": 40,
                         "training_size": int(size),
                         "config": config_record(config),
+                        "point_models": list(MODEL_NAMES),
+                        "point_model_source": POINT_MODEL_SOURCE,
                         "runtime": {"packages": {"synthetic": "1"}},
                     },
                     path.with_suffix(".provenance.json"),
                 )
             output = aggregate_dataset(spec, shards, summaries, config)
             summary = pd.read_csv(output)
-            self.assertEqual(set(summary["model"]), set(MODEL_NAMES))
+            self.assertEqual(set(summary["model"]), set(PLOT_MODELS))
             self.assertEqual(set(summary["plot_start"]), {10})
+            audit = json.loads(output.with_suffix(".provenance.json").read_text())
+            self.assertEqual(audit["point_models"], list(MODEL_NAMES))
+            self.assertEqual(audit["point_model_source"], POINT_MODEL_SOURCE)
+
+            provenance_path = shards / spec.name / "size_00.provenance.json"
+            stale = json.loads(provenance_path.read_text())
+            stale["point_model_source"] = "not_fresh"
+            atomic_write_json(stale, provenance_path)
+            with self.assertRaisesRegex(ValueError, "point model source differs"):
+                aggregate_dataset(spec, shards, summaries, config)
+
+    def test_shared_cutoff_requires_both_families_at_the_same_size(self) -> None:
+        config = GeneralizationConfig(n_resamples=2, n_training_sizes=3)
+        spec = DatasetSpec("Synthetic", "Synthetic", Path("d"), Path("m"), ("c",))
+        sizes = log_spaced_training_sizes(40, config)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            shards, summaries = root / "shards", root / "summaries"
+            for size_index, size in enumerate(sizes):
+                rows = []
+                for model in MODEL_NAMES:
+                    for repeat in range(config.n_resamples):
+                        mae = 1.0
+                        if size_index == 0 and model in {"EN", "Meta EN"}:
+                            mae = 0.5
+                        if size_index == 1 and model in {"SVM", "Meta SVM"}:
+                            mae = 0.5
+                        if size_index == 2 and model != "Mean":
+                            mae = 0.5
+                        rows.append(
+                            {
+                                "model": model,
+                                "mae": mae,
+                                "prediction_sd": 0.2,
+                                "convergence_warnings": 0,
+                                "selected_alpha": (
+                                    0.1 if model in {"EN", "Meta EN"} else np.nan
+                                ),
+                                "training_size": int(size),
+                                "size_index": size_index,
+                                "repeat_id": repeat,
+                            }
+                        )
+                path = shards / spec.name / f"size_{size_index:02d}.parquet"
+                atomic_write_parquet(pd.DataFrame(rows), path)
+                atomic_write_json(
+                    {
+                        "dataset": spec.name,
+                        "training_pool_samples": 40,
+                        "training_size": int(size),
+                        "config": config_record(config),
+                        "point_models": list(MODEL_NAMES),
+                        "point_model_source": POINT_MODEL_SOURCE,
+                        "runtime": {"packages": {"synthetic": "1"}},
+                    },
+                    path.with_suffix(".provenance.json"),
+                )
+            output = aggregate_dataset(spec, shards, summaries, config)
+            summary = pd.read_csv(output)
+            audit = json.loads(output.with_suffix(".provenance.json").read_text())
+            self.assertEqual(audit["en_family_cutoff"], int(sizes[0]))
+            self.assertEqual(audit["svm_family_cutoff"], int(sizes[1]))
+            self.assertEqual(audit["plot_start"], int(sizes[2]))
+            self.assertEqual(summary["training_size"].min(), int(sizes[2]))
 
 
 class EvolutionTests(unittest.TestCase):
     def test_formal_component_and_spline_configuration(self) -> None:
         config = EvolutionConfig()
-        self.assertEqual(config.alphas[0], 10.0)
-        component = nonnegative_component_encv(config)
+        self.assertEqual(config.alpha, 0.001)
+        component = nonnegative_component_elastic_net(config)
         self.assertIn("scaler", component.named_steps)
         self.assertTrue(component.named_steps["model"].positive)
-        self.assertNotIn("scaler", spline_encv(config).named_steps)
+        self.assertNotIn("scaler", spline_elastic_net(config).named_steps)
 
     def test_distance_table_requires_all_unique_pairs(self) -> None:
         pairs = [(a, b) for index, a in enumerate(SPECIES) for b in SPECIES[index + 1 :]]
@@ -205,7 +286,7 @@ class EvolutionTests(unittest.TestCase):
                 "Molecular evolutionary distance",
                 stem,
                 coefficient_path=coefficients,
-                config=EvolutionConfig(bootstrap_repeats=2, trend_points=20, n_jobs=1),
+                config=EvolutionConfig(bootstrap_repeats=2, trend_points=20),
             )
             panel = ExpectedPanel(
                 stem.name,
@@ -220,9 +301,9 @@ class EvolutionTests(unittest.TestCase):
 
 
 class PlottingTests(unittest.TestCase):
-    def test_formal_plot_passes_pdf_svg_validator(self) -> None:
+    def test_formal_plot_variants_pass_pdf_svg_validator(self) -> None:
         rows = []
-        for model_index, model in enumerate(MODEL_NAMES):
+        for model_index, model in enumerate(PLOT_MODELS):
             for size in (10, 20, 40):
                 mean = 2.0 + model_index * 0.1 - np.log10(size) * 0.1
                 rows.append(
@@ -243,18 +324,78 @@ class PlottingTests(unittest.TestCase):
             spec = DatasetSpec(
                 "Synthetic", "Synthetic", Path("direct"), Path("meta"), ("component",)
             )
-            pdf, svg = plot_generalization_panel(
-                summary,
-                spec,
-                root / "Synthetic_fewshot_clock_mi_svm_with_mean_baseline",
-            )
-            panel = ExpectedPanel(
-                "Synthetic_fewshot_clock_mi_svm_with_mean_baseline",
-                "generalization",
-                "Synthetic",
-            )
-            validate_pdf(pdf, panel)
-            validate_svg(svg, panel)
+            for suffix, include_mean_baseline in (("", False), ("_with_mean_baseline", True)):
+                stem = root / f"Synthetic_fewshot_clock_mi_svm{suffix}"
+                pdf, svg = plot_generalization_panel(
+                    summary, spec, stem, include_mean_baseline=include_mean_baseline
+                )
+                panel = ExpectedPanel(
+                    stem.name,
+                    "generalization",
+                    "Synthetic",
+                    mean=include_mean_baseline,
+                )
+                validate_pdf(pdf, panel)
+                validate_svg(svg, panel)
+
+    def test_species_baseline_layouts_control_mean_and_universal_clock(self) -> None:
+        rows = []
+        for model_index, model in enumerate(PLOT_MODELS):
+            for size in (10, 20, 40):
+                mean = 2.0 + model_index * 0.1 - np.log10(size) * 0.1
+                rows.append(
+                    {
+                        "dataset": "BosTaurus",
+                        "model": model,
+                        "training_size": size,
+                        "mean": mean,
+                        "q025": mean - 0.1,
+                        "q975": mean + 0.1,
+                        "plot_start": 10,
+                    }
+                )
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            summary = root / "summary.csv"
+            pd.DataFrame(rows).to_csv(summary, index=False)
+            spec = DatasetSpec("BosTaurus", "Bos taurus", Path("direct"), Path("meta"), ("c",))
+            for suffix, include_mean_baseline, universal_mae in (
+                ("", False, None),
+                ("_with_mean_and_universal_baselines", True, 1.5),
+            ):
+                stem = root / f"BosTaurus_fewshot_clock{suffix}"
+                pdf, svg = plot_generalization_panel(
+                    summary,
+                    spec,
+                    stem,
+                    include_mean_baseline=include_mean_baseline,
+                    universal_mae=universal_mae,
+                    italic_title=True,
+                )
+                panel = ExpectedPanel(
+                    stem.name,
+                    "generalization",
+                    "Bos taurus",
+                    mean=include_mean_baseline,
+                    universal=universal_mae is not None,
+                )
+                validate_pdf(pdf, panel)
+                validate_svg(svg, panel)
+            with self.assertRaisesRegex(ValueError, "only shown"):
+                plot_generalization_panel(
+                    summary,
+                    spec,
+                    root / "invalid",
+                    include_mean_baseline=False,
+                    universal_mae=1.5,
+                )
+
+    def test_final_output_contract_has_two_generalization_layouts(self) -> None:
+        panels = expected_panels()
+        self.assertEqual(len(panels), 33)
+        self.assertEqual(sum(panel.group == "evolution" for panel in panels), 3)
+        self.assertEqual(sum(panel.mean for panel in panels), 15)
+        self.assertEqual(sum(panel.universal for panel in panels), 10)
 
 
 if __name__ == "__main__":

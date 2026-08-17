@@ -9,49 +9,30 @@ from typing import Sequence
 
 import pandas as pd
 
-try:  # Supports both ``python -m`` and direct-script execution.
-    from .plotting import (
-        ARCHITECTURE_COLORS,
-        ARCHITECTURE_LABELS,
-        ARCHITECTURES,
-        COMPONENT_COLORS,
-        COMPONENT_LABELS,
-        DATASETS,
-        add_legend,
-        add_shared_mae_label,
-        configure_manuscript_style,
-        make_dataset_axes,
-        metric_legend_handles,
-        plot_labeled_metrics,
-        save_vector_pair,
-        style_dataset_axis,
-    )
-except ImportError:  # pragma: no cover - exercised by direct CLI invocation.
-    from plotting import (
-        ARCHITECTURE_COLORS,
-        ARCHITECTURE_LABELS,
-        ARCHITECTURES,
-        COMPONENT_COLORS,
-        COMPONENT_LABELS,
-        DATASETS,
-        add_legend,
-        add_shared_mae_label,
-        configure_manuscript_style,
-        make_dataset_axes,
-        metric_legend_handles,
-        plot_labeled_metrics,
-        save_vector_pair,
-        style_dataset_axis,
-    )
-
+from .plotting import (
+    ARCHITECTURE_COLORS,
+    ARCHITECTURE_LABELS,
+    ARCHITECTURES,
+    COMPONENT_COLORS,
+    COMPONENT_LABELS,
+    DATASETS,
+    add_legend,
+    configure_manuscript_style,
+    finish_layout,
+    make_dataset_axes,
+    metric_legend_handles,
+    plot_labeled_metrics,
+    save_vector_pair,
+    style_dataset_axis,
+)
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_ARCHITECTURE_METRICS = (
-    PROJECT_ROOT / "data/chronological_age_prediction/model_architecture_metrics.csv"
-)  # fill in your path
+    Path("/path/to/your/file")  # fill in your path
+)
 DEFAULT_COMPONENT_METRICS = (
-    PROJECT_ROOT / "data/chronological_age_prediction/component_clock_metrics.csv"
-)  # fill in your path
+    Path("/path/to/your/file")  # fill in your path
+)
 DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "results/chronological_age_prediction/scatter"
 
 
@@ -88,6 +69,8 @@ def plot_metric_scatter(
     display_labels: dict[str, str],
     legend_title: str,
     output_stem: Path,
+    meta_label: str | None,
+    legend_labels: Sequence[str] | None = None,
 ) -> None:
     """Plot MAE against Pearson r in one four-dataset scatter layout."""
     figure, axes = make_dataset_axes()
@@ -98,16 +81,19 @@ def plot_metric_scatter(
             label_column=label_column,
             labels=labels,
             colors=colors,
+            meta_label=meta_label,
         )
         style_dataset_axis(axis, dataset, index)
-    add_shared_mae_label(figure)
+    finish_layout(figure, axes)
     labels_for_legend = {label: display_labels.get(label, label) for label in labels}
+    legend_labels = labels if legend_labels is None else legend_labels
     add_legend(
         figure,
         metric_legend_handles(
-            labels,
+            legend_labels,
             colors=colors,
             display_labels=labels_for_legend,
+            meta_label=meta_label,
         ),
         title=legend_title,
     )
@@ -133,7 +119,8 @@ def main() -> None:
     component = read_complete_metrics(
         args.component_metrics,
         label_column="predictor",
-        labels=tuple(COMPONENT_LABELS),
+        labels=tuple(sorted(set(COMPONENT_LABELS).difference({"MetaClock"})))
+        + ("MetaClock",),
     )
     plot_metric_scatter(
         architecture,
@@ -143,15 +130,20 @@ def main() -> None:
         display_labels=ARCHITECTURE_LABELS,
         legend_title="Model architecture",
         output_stem=args.output_dir / "pearson_mae_model_architecture",
+        meta_label=None,
     )
     plot_metric_scatter(
         component,
         label_column="predictor",
-        labels=tuple(COMPONENT_LABELS),
+        labels=tuple(sorted(set(COMPONENT_LABELS).difference({"MetaClock"})))
+        + ("MetaClock",),
         colors=COMPONENT_COLORS,
         display_labels=COMPONENT_LABELS,
         legend_title="Clock",
-        output_stem=args.output_dir / "pearson_mae_component_clock",
+        output_stem=args.output_dir / "pearson_mae_submodel",
+        meta_label="MetaClock",
+        legend_labels=("MetaClock",)
+        + tuple(sorted(set(COMPONENT_LABELS).difference({"MetaClock"}))),
     )
 
 

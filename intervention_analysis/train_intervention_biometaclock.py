@@ -12,33 +12,18 @@ import numpy as np
 import pandas as pd
 import sklearn
 
-try:  # Supports both ``python -m`` and direct-script execution.
-    from .biometaclock_modeling import (
-        ALPHAS,
-        CV_FOLDS,
-        CV_MAX_ITER,
-        REFIT_MAX_ITER,
-        SEED,
-        fit_scaled_elastic_net_cv,
-    )
-except ImportError:  # pragma: no cover - exercised by direct CLI invocation.
-    from biometaclock_modeling import (
-        ALPHAS,
-        CV_FOLDS,
-        CV_MAX_ITER,
-        REFIT_MAX_ITER,
-        SEED,
-        fit_scaled_elastic_net_cv,
-    )
-
+from .biometaclock_modeling import (
+    ALPHAS,
+    CV_FOLDS,
+    CV_MAX_ITER,
+    REFIT_MAX_ITER,
+    SEED,
+    fit_scaled_elastic_net_cv,
+)
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_TRAINING_TABLE = (
-    PROJECT_ROOT / "datasets/intervention/training_component_predictions.csv"
-)  # fill in your path
-DEFAULT_FEATURE_TABLE = (
-    PROJECT_ROOT / "datasets/intervention/biometaclock_features.csv"
-)  # fill in your path
+DEFAULT_TRAINING_TABLE = Path("/path/to/your/file")  # fill in your path
+DEFAULT_FEATURE_TABLE = Path("/path/to/your/file")  # fill in your path
 DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "results/intervention/model"
 TARGET = "clinical_phenoage"
 EXCLUDED_FEATURES = {"dnamfitage"}
@@ -92,15 +77,18 @@ def main() -> int:
         "n_samples": int(len(target)),
         "n_features": len(features),
         "excluded_features": sorted(EXCLUDED_FEATURES),
-        "pipeline": "GridSearchCV(Pipeline(StandardScaler, ElasticNet)) + refit",
+        "pipeline": (
+            "Pipeline(StandardScaler, ElasticNetCV) + fresh "
+            "Pipeline(StandardScaler, ElasticNet) selected-alpha refit"
+        ),
         "cv_folds": CV_FOLDS,
         "alphas": ALPHAS.tolist(),
         "selected_alpha": fitted.alpha,
         "l1_ratio": fitted.l1_ratio,
         "best_cv_mse": fitted.best_cv_mse,
         "refit_n_iter": fitted.n_iter,
-        "cv_convergence_warnings": 0,
-        "refit_convergence_warnings": 0,
+        "cv_convergence_warnings": fitted.cv_convergence_warnings,
+        "refit_convergence_warnings": fitted.refit_convergence_warnings,
         "cv_max_iter": CV_MAX_ITER,
         "refit_max_iter": REFIT_MAX_ITER,
         "seed": SEED,

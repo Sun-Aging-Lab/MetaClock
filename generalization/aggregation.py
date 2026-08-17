@@ -12,6 +12,7 @@ import pandas as pd
 
 from .modeling import (
     MODEL_NAMES,
+    POINT_MODEL_SOURCE,
     DatasetSpec,
     GeneralizationConfig,
     atomic_write_json,
@@ -30,6 +31,8 @@ SUMMARY_COLUMNS = (
     "q975",
     "plot_start",
 )
+PLOT_MODELS = ("EN", "Meta EN", "Mean EN", "SVM", "Meta SVM", "Mean SVM")
+MINIMUM_PLOT_TRAINING_SIZE = 10
 
 
 def atomic_write_csv(frame: pd.DataFrame, output: Path) -> None:
@@ -66,6 +69,10 @@ def load_validated_shards(
             raise ValueError(f"{provenance_path}: wrong dataset")
         if provenance.get("config") != config_record(config):
             raise ValueError(f"{provenance_path}: configuration differs")
+        if provenance.get("point_models") != list(MODEL_NAMES):
+            raise ValueError(f"{provenance_path}: point model set differs")
+        if provenance.get("point_model_source") != POINT_MODEL_SOURCE:
+            raise ValueError(f"{provenance_path}: point model source differs")
         observed_pool = int(provenance["training_pool_samples"])
         if training_pool is None:
             training_pool = observed_pool
@@ -77,10 +84,7 @@ def load_validated_shards(
             raise ValueError(f"{provenance_path}: training size differs")
         frame = pd.read_parquet(path)
         validate_point_shard(
-            frame,
-            size_index=size_index,
-            training_size=expected_size,
-            config=config,
+            frame, size_index=size_index, training_size=expected_size, config=config
         )
         frames.append(frame)
         provenances.append(provenance)
@@ -94,17 +98,10 @@ def load_validated_shards(
     return merged, provenances
 
 
-def aggregate_dataset(
-    spec: DatasetSpec,
-    shard_root: Path,
-    summary_root: Path,
-    config: GeneralizationConfig | None = None,
-) -> Path:
-    """Summarize 50 repeats and apply the shared EN/Meta-EN plot cutoff."""
-    config = config or GeneralizationConfig()
-    raw, provenances = load_validated_shards(spec, shard_root, config)
+def summarize_repeats(frame: pd.DataFrame, config: GeneralizationConfig) -> pd.DataFrame:
+    """Summarize one repeat-level result table with formal empirical intervals."""
     summary = (
-        raw.groupby(["model", "training_size"], observed=True)["mae"]
+        frame.groupby(["model", "training_size"], observed=True)["mae"]
         .agg(
             mean="mean",
             q025=lambda values: values.quantile(0.025),
@@ -114,19 +111,90 @@ def aggregate_dataset(
         .reset_index()
     )
     if not summary["repeats"].eq(config.n_resamples).all():
-        raise ValueError(f"{spec.name}: a summary cell does not contain 50 repeats")
-    summary = summary.drop(columns="repeats")
-    if set(summary["model"]) != set(MODEL_NAMES):
+        raise ValueError("A summary cell does not contain the configured repeat count")
+    return summary.drop(columns="repeats")
+
+
+def _first_family_cutoff(
+    wide: pd.DataFrame, first_model: str, second_model: str
+) -> int:
+    """Return the first grid size where a model family beats the mean baseline."""
+    eligible = wide.index[
+        (wide.index >= MINIMUM_PLOT_TRAINING_SIZE)
+        & wide[first_model].lt(wide["Mean"])
+        & wide[second_model].lt(wide["Mean"])
+    ]
+    if eligible.empty:
+        raise ValueError(
+            f"{first_model} and {second_model} are never both below Mean at "
+            f"training size >= {MINIMUM_PLOT_TRAINING_SIZE}"
+        )
+    return int(eligible.min())
+
+
+def aggregate_dataset(
+    spec: DatasetSpec,
+    shard_root: Path,
+    summary_root: Path,
+    config: GeneralizationConfig | None = None,
+) -> Path:
+    """Summarize 50 repeats and apply the shared EN/SVM-family plot cutoff."""
+    config = config or GeneralizationConfig()
+    raw, provenances = load_validated_shards(spec, shard_root, config)
+    fresh = summarize_repeats(raw, config)
+    if set(fresh["model"]) != set(MODEL_NAMES):
         raise ValueError(f"{spec.name}: summary model set differs")
+    numeric = fresh[["mean", "q025", "q975"]].to_numpy(float)
+    if not np.isfinite(numeric).all():
+        raise ValueError(f"{spec.name}: summary contains non-finite values")
+    by_model = {
+        label: fresh.loc[
+            fresh["model"].eq(label), ["training_size", "mean", "q025", "q975"]
+        ].copy()
+        for label in MODEL_NAMES
+    }
+    wide = pd.DataFrame(
+        {
+            label: by_model[label].set_index("training_size")["mean"]
+            for label in ("EN", "Meta EN", "SVM", "Meta SVM", "Mean")
+        }
+    )
+    if len(wide.index) != config.n_training_sizes:
+        raise ValueError(f"{spec.name}: training-size grid is incomplete")
+    en_family_cutoff = _first_family_cutoff(wide, "EN", "Meta EN")
+    svm_family_cutoff = _first_family_cutoff(wide, "SVM", "Meta SVM")
+    shared_eligible = wide.index[
+        (wide.index >= MINIMUM_PLOT_TRAINING_SIZE)
+        & wide["EN"].lt(wide["Mean"])
+        & wide["Meta EN"].lt(wide["Mean"])
+        & wide["SVM"].lt(wide["Mean"])
+        & wide["Meta SVM"].lt(wide["Mean"])
+    ]
+    if shared_eligible.empty:
+        raise ValueError(
+            f"{spec.name}: EN, Meta EN, SVM, and Meta SVM are never all below "
+            f"Mean at the same training size >= {MINIMUM_PLOT_TRAINING_SIZE}"
+        )
+    plot_start = int(shared_eligible.min())
+    sources = {
+        "EN": by_model["EN"],
+        "Meta EN": by_model["Meta EN"],
+        "Mean EN": by_model["Mean"],
+        "SVM": by_model["SVM"],
+        "Meta SVM": by_model["Meta SVM"],
+        "Mean SVM": by_model["Mean"],
+    }
+    rows: list[pd.DataFrame] = []
+    for label, source in sources.items():
+        selected = source.loc[source["training_size"].ge(plot_start)].copy()
+        selected.insert(0, "model", label)
+        rows.append(selected)
+    summary = pd.concat(rows, ignore_index=True)
+    if set(summary["model"]) != set(PLOT_MODELS):
+        raise ValueError(f"{spec.name}: plot model set differs")
     numeric = summary[["mean", "q025", "q975"]].to_numpy(float)
     if not np.isfinite(numeric).all():
         raise ValueError(f"{spec.name}: summary contains non-finite values")
-    wide = summary.pivot(index="training_size", columns="model", values="mean")
-    eligible = wide.index[(wide["EN"] < wide["Mean"]) & (wide["Meta EN"] < wide["Mean"])]
-    if eligible.empty:
-        raise ValueError(f"{spec.name}: EN and Meta EN are never both below Mean")
-    plot_start = max(10, int(eligible.min()))
-    summary = summary.loc[summary["training_size"] >= plot_start].copy()
     summary.insert(0, "dataset", spec.name)
     summary["plot_start"] = plot_start
     summary = summary.loc[:, list(SUMMARY_COLUMNS)].sort_values(["model", "training_size"])
@@ -136,7 +204,11 @@ def aggregate_dataset(
     warnings_by_model = raw.groupby("model")["convergence_warnings"].sum().astype(int)
     audit = {
         "dataset": spec.name,
+        "en_family_cutoff": en_family_cutoff,
+        "svm_family_cutoff": svm_family_cutoff,
         "plot_start": plot_start,
+        "point_model_source": POINT_MODEL_SOURCE,
+        "point_models": list(MODEL_NAMES),
         "raw_rows": len(raw),
         "summary_rows": len(summary),
         "convergence_warnings": warnings_by_model.to_dict(),

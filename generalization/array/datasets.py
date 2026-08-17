@@ -9,15 +9,15 @@ DATASETS = {
     "GSE234461": DatasetSpec(
         "GSE234461",
         "MethylChipEPIC v1.0",
-        Path("data/figure3/array/GSE234461/direct_cpg.parquet"),  # fill in your path
-        Path("data/figure3/array/GSE234461/component_predictions.parquet"),  # fill in your path
+        Path("/path/to/your/file"),  # fill in your path
+        Path("/path/to/your/file"),  # fill in your path
         CHRONOLOGICAL_COMPONENTS,
     ),
     "GSE184221": DatasetSpec(
         "GSE184221",
-        "MethylChip40k",
-        Path("data/figure3/array/GSE184221/direct_cpg.parquet"),  # fill in your path
-        Path("data/figure3/array/GSE184221/component_predictions.parquet"),  # fill in your path
+        "MethylChip40",
+        Path("/path/to/your/file"),  # fill in your path
+        Path("/path/to/your/file"),  # fill in your path
         CHRONOLOGICAL_COMPONENTS,
     ),
 }

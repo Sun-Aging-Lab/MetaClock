@@ -9,29 +9,24 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-try:
-    from ..config import ENRICHMENT, EXCLUDED_MODELS
-    from ..provenance import file_record, sha256, write_json
-except ImportError:  # Direct-script fallback with the parent package on PYTHONPATH.
-    from config import ENRICHMENT, EXCLUDED_MODELS
-    from provenance import file_record, sha256, write_json
-
+from ..config import ENRICHMENT, EXCLUDED_MODELS
+from ..provenance import file_record, sha256, write_json
 
 DEFAULT_CHRONO_RANKING = Path(
     "results/enrichment/rankings/chrono_cpg_weights.csv.gz"
-)  # fill in your path
+)
 DEFAULT_BIO_RANKING = Path(
     "results/enrichment/rankings/bio_cpg_weights.csv.gz"
-)  # fill in your path
+)
 DEFAULT_CHRONO_AUDIT = Path(
     "results/enrichment/rankings/chrono_ranking_summary.json"
-)  # fill in your path
+)
 DEFAULT_BIO_AUDIT = Path(
     "results/enrichment/rankings/bio_ranking_summary.json"
-)  # fill in your path
+)
 DEFAULT_MEMBERSHIP = Path(
     "results/enrichment/array_union/platform_membership.csv.gz"
-)  # fill in your path
+)
 DEFAULT_OUTPUT = Path("results/enrichment/inputs")
 
 

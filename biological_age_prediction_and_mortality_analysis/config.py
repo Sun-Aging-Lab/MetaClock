@@ -1,4 +1,4 @@
-"""Load and validate the single analysis manifest shared by Figure 4 and enrichment."""
+"""Load and validate the manifest shared by biological analyses and enrichment."""
 
 from __future__ import annotations
 
@@ -44,10 +44,8 @@ MANIFEST = load_manifest()
 FIGURE4 = MANIFEST["figure4"]
 ENRICHMENT = MANIFEST["enrichment"]
 EXCLUDED_MODELS = frozenset(MANIFEST["globally_excluded_models"])
-FIGURE4_COMPONENTS = tuple(FIGURE4["component_features"])
-FIGURE4_MODELS = tuple(FIGURE4["display_models"])
+EXTERNAL_COMPONENTS = tuple(FIGURE4["external_component_features"])
 EXTERNAL_MODELS = tuple(FIGURE4["external_models"])
-SURVIVAL_MODELS = tuple(FIGURE4["survival_models"])
 
 
 def require_exact_sequence(observed: list[str], expected: tuple[str, ...], label: str) -> None:

@@ -1,11 +1,11 @@
-"""Shared formal ENCV coefficients, spline trends, and evolution plotting."""
+"""Shared formal fixed-alpha coefficients, spline trends, and evolution plotting."""
 
 from __future__ import annotations
 
 import json
 import os
 import warnings
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
 os.environ.setdefault("MPLCONFIGDIR", "/tmp/metaclock_evolution_matplotlib")
@@ -18,7 +18,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from sklearn.exceptions import ConvergenceWarning
-from sklearn.linear_model import ElasticNetCV
+from sklearn.linear_model import ElasticNet
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import SplineTransformer, StandardScaler
 
@@ -46,16 +46,12 @@ DEFAULT_COEFFICIENTS = Path(
 
 @dataclass(frozen=True)
 class EvolutionConfig:
-    """Configuration used by the current formal evolution result code."""
+    """Fixed-alpha configuration used by the current formal evolution artifacts."""
 
-    alphas: tuple[float, ...] = field(
-        default_factory=lambda: tuple(float(x) for x in np.logspace(1, -5, 30))
-    )
-    cv_folds: int = 5
+    alpha: float = 0.001
     l1_ratio: float = 0.5
-    max_iter: int = 20_000
+    max_iter: int = 1_000
     tolerance: float = 1e-4
-    n_jobs: int = -1
     bootstrap_repeats: int = 200
     random_seed: int = 42
     trend_points: int = 200
@@ -68,19 +64,17 @@ PANEL_STYLE = {
 }
 
 
-def nonnegative_component_encv(config: EvolutionConfig) -> Pipeline:
-    """Build the formal standardized non-negative component-weight ENCV."""
+def nonnegative_component_elastic_net(config: EvolutionConfig) -> Pipeline:
+    """Build the formal standardized fixed-alpha non-negative component model."""
     return Pipeline(
         [
             ("scaler", StandardScaler()),
             (
                 "model",
-                ElasticNetCV(
-                    alphas=np.asarray(config.alphas),
-                    cv=config.cv_folds,
+                ElasticNet(
+                    alpha=config.alpha,
                     l1_ratio=config.l1_ratio,
                     max_iter=config.max_iter,
-                    n_jobs=config.n_jobs,
                     positive=True,
                     selection="cyclic",
                     tol=config.tolerance,
@@ -108,7 +102,7 @@ def load_distances(path: Path = PAIRWISE_DISTANCE) -> dict[frozenset[str], float
 
 
 def fit_directed_component_weights(config: EvolutionConfig) -> pd.DataFrame:
-    """Fit the 90 formal directed non-negative ENCV component weights once."""
+    """Fit the 90 formal directed fixed-alpha non-negative component weights once."""
     distances = load_distances()
     rows: list[dict[str, object]] = []
     for target in SPECIES:
@@ -119,14 +113,14 @@ def fit_directed_component_weights(config: EvolutionConfig) -> pd.DataFrame:
         if set(frame.columns) != {"age", *features}:
             raise ValueError(f"{path}: expected age and nine ENCV component columns")
         complete = frame[["age", *features]].apply(pd.to_numeric, errors="coerce").dropna()
-        if len(complete) < config.cv_folds:
-            raise ValueError(f"{path}: fewer than {config.cv_folds} complete samples")
-        model = nonnegative_component_encv(config)
+        if len(complete) < 2:
+            raise ValueError(f"{path}: fewer than two complete samples")
+        model = nonnegative_component_elastic_net(config)
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always", ConvergenceWarning)
             model.fit(complete[features], complete["age"])
         if any(issubclass(item.category, ConvergenceWarning) for item in caught):
-            raise RuntimeError(f"{path}: component ENCV did not converge")
+            raise RuntimeError(f"{path}: component Elastic Net did not converge")
         for component, coefficient in zip(
             components, model.named_steps["model"].coef_, strict=True
         ):
@@ -203,8 +197,8 @@ def prepare_coefficient_table(
     atomic_write_json(
         {
             "config": config_json,
-            "component_model": "StandardScaler + positive ElasticNetCV",
-            "spline_model": "SplineTransformer + ElasticNetCV (no second scaler)",
+            "component_model": "StandardScaler + positive ElasticNet(alpha=0.001)",
+            "spline_model": "SplineTransformer + ElasticNet(alpha=0.001; no scaler)",
             "rows": len(frame),
         },
         provenance_path,
@@ -212,19 +206,17 @@ def prepare_coefficient_table(
     return output
 
 
-def spline_encv(config: EvolutionConfig) -> Pipeline:
-    """Build the formal cubic spline plus ENCV, intentionally without a scaler."""
+def spline_elastic_net(config: EvolutionConfig) -> Pipeline:
+    """Build the formal cubic spline plus fixed-alpha Elastic Net without scaling."""
     return Pipeline(
         [
             ("spline", SplineTransformer(n_knots=3, degree=3, include_bias=False)),
             (
                 "model",
-                ElasticNetCV(
-                    alphas=np.asarray(config.alphas),
-                    cv=config.cv_folds,
+                ElasticNet(
+                    alpha=config.alpha,
                     l1_ratio=config.l1_ratio,
                     max_iter=config.max_iter,
-                    n_jobs=config.n_jobs,
                     selection="cyclic",
                     tol=config.tolerance,
                 ),
@@ -235,18 +227,18 @@ def spline_encv(config: EvolutionConfig) -> Pipeline:
 
 def fit_spline_interval(x: np.ndarray, y: np.ndarray, config: EvolutionConfig) -> pd.DataFrame:
     """Fit the formal spline and its 200-resample percentile interval."""
-    if x.size != y.size or x.size < config.cv_folds:
+    if x.size != y.size or x.size < 2:
         raise ValueError("Spline inputs have invalid size")
     grid = np.linspace(float(x.min()), float(x.max()), config.trend_points)
     rng = np.random.default_rng(config.random_seed)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", ConvergenceWarning)
-        fitted = spline_encv(config).fit(x[:, None], y).predict(grid[:, None])
+        fitted = spline_elastic_net(config).fit(x[:, None], y).predict(grid[:, None])
         bootstrap = np.empty((config.bootstrap_repeats, config.trend_points))
         for index in range(config.bootstrap_repeats):
             sample = rng.integers(0, len(x), len(x))
             bootstrap[index] = (
-                spline_encv(config).fit(x[sample, None], y[sample]).predict(grid[:, None])
+                spline_elastic_net(config).fit(x[sample, None], y[sample]).predict(grid[:, None])
             )
     lower, upper = np.percentile(bootstrap, (2.5, 97.5), axis=0)
     return pd.DataFrame({"x": grid, "fitted": fitted, "lower": lower, "upper": upper})
@@ -275,6 +267,10 @@ def configure_evolution_style() -> None:
             "ytick.major.width": 0.2,
             "ytick.minor.width": 0.2,
             "axes.edgecolor": "#CCCCCC",
+            "text.color": "#262626",
+            "axes.labelcolor": "#262626",
+            "xtick.color": "#262626",
+            "ytick.color": "#262626",
         }
     )
 

@@ -9,19 +9,12 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-try:
-    from ..config import ENRICHMENT, EXCLUDED_MODELS
-    from ..provenance import file_record, software_versions, write_json
-except ImportError:  # Direct-script fallback with the parent package on PYTHONPATH.
-    from config import ENRICHMENT, EXCLUDED_MODELS
-    from provenance import file_record, software_versions, write_json
+from ..config import ENRICHMENT, EXCLUDED_MODELS
+from ..provenance import file_record, software_versions, write_json
 
-
-DEFAULT_META_WEIGHTS = Path("data/enrichment/meta_component_weights.csv")  # fill in your path
-DEFAULT_COMPONENT_CPG = Path(
-    "data/enrichment/component_cpg_coefficients.csv.gz"
-)  # fill in your path
-DEFAULT_COMPONENT_AUDIT = Path("data/enrichment/component_model_audit.csv")  # fill in your path
+DEFAULT_META_WEIGHTS = Path("/path/to/your/file")  # fill in your path
+DEFAULT_COMPONENT_CPG = Path("/path/to/your/file")  # fill in your path
+DEFAULT_COMPONENT_AUDIT = Path("/path/to/your/file")  # fill in your path
 DEFAULT_OUTPUT = Path("results/enrichment/rankings")
 
 

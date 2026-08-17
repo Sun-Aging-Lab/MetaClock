@@ -26,6 +26,14 @@ from generalization.species.species_config import (
 TARGET = "age"
 
 
+def component_feature_columns(frame: pd.DataFrame) -> list[str]:
+    """Use every deposited array probe, including the 66 non-cg rs probes."""
+    features = [column for column in frame.columns if column != TARGET]
+    if not features or len(features) != len(set(features)):
+        raise ValueError("MLP component features are empty or duplicated")
+    return features
+
+
 @dataclass(frozen=True)
 class MLPConfig:
     """Recovered MLP-ELU component architecture and optimizer settings."""
@@ -92,13 +100,7 @@ def train_component(
     input_path = project_path(input_path)
     output_root = project_path(output_root)
     frame = pd.read_parquet(input_path).dropna(subset=[TARGET])
-    features = [
-        column
-        for column in frame.columns
-        if str(column).startswith("cg") and not frame[column].isna().all()
-    ]
-    if not features:
-        raise ValueError(f"{input_path}: no CpG columns")
+    features = component_feature_columns(frame)
     target = pd.to_numeric(frame[TARGET], errors="raise").to_numpy(dtype=np.float32)
     if not np.isfinite(target).all():
         raise ValueError("MLP target contains non-finite values")

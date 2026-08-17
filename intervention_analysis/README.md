@@ -7,33 +7,41 @@ FDR volcano plot.
 
 ## Scripts
 
-- `train_intervention_biometaclock.py`: tunes the complete
-  `Pipeline(StandardScaler, ElasticNet)` with `GridSearchCV`, so scaling is fit
-  independently inside each of five shuffled folds. It searches 30 alphas from
-  `1` to `1e-5`, uses `l1_ratio=0.5`, rejects any convergence warning, and
-  performs an all-participant selected-alpha refit. `dnamfitage` is rejected.
-- `predict_intervention_biological_age.py`: applies the frozen model to an
+- `train_intervention_biometaclock.py`: reproduces the canonical two-stage
+  fit used for the current intervention results. It fits
+  `Pipeline(StandardScaler, ElasticNetCV)` with the scaler outside the five
+  shuffled folds, searches 30 alphas from `1` to `1e-5`, uses the default
+  `l1_ratio=0.5`, records (but does not reject) CV convergence warnings, and
+  performs a fresh all-participant `Pipeline(StandardScaler, ElasticNet)`
+  refit at the selected alpha. Refit warnings and reaching `100000` iterations
+  are fatal. `dnamfitage` is rejected.
+- `predict_intervention_biological_age.py`: applies the trained model to an
   ordered component-prediction table.
 - `summarize_intervention_effects.py`: performs one chronological-age fit per
   GEO dataset/correction stratum, collapses repeated samples to donor means,
-  and uses a paired t-test only for fully paired donor sets or Welch's t-test
-  only for fully unpaired sets. Partially overlapping designs fail rather than
-  silently dropping unmatched donors; comparisons with no chronological age
-  must be fully paired with at least two donors per group.
-- `biometaclock_modeling.py`: leakage-safe fold-local scaling, five-fold alpha
-  selection, convergence auditing, and the all-participant Elastic Net refit.
+  and uses a paired t-test for paired donor sets (including the shared-donor
+  subset of partial pairs) or Welch's t-test for fully unpaired sets. The
+  current workflow requires at least four donors per arm; comparisons without
+  chronological age must be fully paired.
+- `biometaclock_modeling.py`: canonical five-fold alpha selection, warning
+  auditing, and the checked all-participant Elastic Net refit.
 - `select_curated_intervention_results.py`: applies the audited representative
-  selection and recomputes Benjamini-Hochberg FDR across the final family.
+  selection, excludes the four datasets used by the current intervention
+  analysis (`GSE276988`, `GSE330869`, `GSE168628`, `GSE130028`), and recomputes
+  Benjamini-Hochberg FDR across that final family. The exclusion list can be
+  overridden with repeated `--exclude-gse-id` arguments.
 - `plot_intervention_fdr_volcano.py`: generates the current 110 × 60 mm PDF/SVG
-  volcano with FDR 5% and 20% categories.
+  volcano with FDR 5% and 20% categories. It registers the bundled Liberation
+  Sans assets, uses the formal 0.2 pt outline styling, and validates the exact
+  five-label annotation map and offsets used by the current figure.
 - `validate_intervention_volcano.py`: checks the canvas, editable text, axis
   labels, and the complete curated annotation set.
 
-## Relative input layout
+## Input layout
 
-Replace the project-relative placeholder files below or pass corresponding
-project-relative or absolute command-line paths. Each dataset/model input
-default is marked `# fill in your path`.
+Every original dataset/feature-table input defaults to
+`Path("/path/to/your/file")  # fill in your path`; replace it or pass a
+command-line path before running. Workflow outputs remain under `results/`.
 
 ```text
 datasets/intervention/
@@ -59,12 +67,12 @@ The selection audit's `selected` column accepts only explicit Boolean values
 ## Example
 
 ```bash
-uv run python intervention_analysis/train_intervention_biometaclock.py
-uv run python intervention_analysis/predict_intervention_biological_age.py
-uv run python intervention_analysis/summarize_intervention_effects.py
-uv run python intervention_analysis/select_curated_intervention_results.py
-uv run python intervention_analysis/plot_intervention_fdr_volcano.py
-uv run python intervention_analysis/validate_intervention_volcano.py
+uv run python -m intervention_analysis.train_intervention_biometaclock
+uv run python -m intervention_analysis.predict_intervention_biological_age
+uv run python -m intervention_analysis.summarize_intervention_effects
+uv run python -m intervention_analysis.select_curated_intervention_results
+uv run python -m intervention_analysis.plot_intervention_fdr_volcano
+uv run python -m intervention_analysis.validate_intervention_volcano
 ```
 
 Raw methylation parsing and component-clock inference are intentionally kept

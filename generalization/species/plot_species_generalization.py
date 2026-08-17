@@ -1,4 +1,4 @@
-"""Plot species generalization with Mean and Universal Clock baselines."""
+"""Plot species generalization with and without baseline comparisons."""
 
 from __future__ import annotations
 
@@ -44,14 +44,19 @@ def main() -> int:
     for species in args.species or list(SPECIES):
         spec = species_spec(species)
         summary = args.summary_root / f"{species}_plot_summary.csv"
-        outputs = plot_generalization_panel(
-            summary,
-            spec,
-            args.output_dir / f"{species}_fewshot_clock_with_mean_and_universal_baselines",
-            universal_mae=baselines[species],
-            italic_title=True,
-        )
-        print(*outputs, sep="\n")
+        for suffix, include_mean_baseline, universal_mae in (
+            ("", False, None),
+            ("_with_mean_and_universal_baselines", True, baselines[species]),
+        ):
+            outputs = plot_generalization_panel(
+                summary,
+                spec,
+                args.output_dir / f"{species}_fewshot_clock{suffix}",
+                include_mean_baseline=include_mean_baseline,
+                universal_mae=universal_mae,
+                italic_title=True,
+            )
+            print(*outputs, sep="\n")
     return 0
 
 

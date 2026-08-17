@@ -1,4 +1,4 @@
-"""Validate all 18 final generalization PDF/SVG pairs."""
+"""Validate all 33 final generalization PDF/SVG pairs."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ from generalization.species.species_config import DISPLAY_NAMES, SPECIES
 from generalization.tissue.datasets import DATASETS as TISSUE_DATASETS
 
 if TYPE_CHECKING:
-    import fitz
+    import pymupdf
 
 POINTS_PER_MM = 72.0 / 25.4
 SIZE_TOLERANCE_PT = 0.02
@@ -30,6 +30,7 @@ class ExpectedPanel:
     stem: str
     group: str
     title: str | None
+    mean: bool = False
     universal: bool = False
     point_color: str | None = None
     curve_color: str | None = None
@@ -37,19 +38,30 @@ class ExpectedPanel:
 
 
 def expected_panels() -> list[ExpectedPanel]:
-    """Return the exact 18-panel final-output contract."""
+    """Return the exact 33-panel final-output contract."""
     panels: list[ExpectedPanel] = []
     for name, spec in {**ARRAY_DATASETS, **TISSUE_DATASETS}.items():
         base = f"{name}_fewshot_clock_mi_svm"
-        panels.append(ExpectedPanel(f"{base}_with_mean_baseline", "generalization", spec.title))
+        panels.extend(
+            (
+                ExpectedPanel(base, "generalization", spec.title),
+                ExpectedPanel(
+                    f"{base}_with_mean_baseline", "generalization", spec.title, mean=True
+                ),
+            )
+        )
     for species in SPECIES:
         base = f"{species}_fewshot_clock"
-        panels.append(
-            ExpectedPanel(
-                f"{base}_with_mean_and_universal_baselines",
-                "generalization",
-                DISPLAY_NAMES[species],
-                universal=True,
+        panels.extend(
+            (
+                ExpectedPanel(base, "generalization", DISPLAY_NAMES[species]),
+                ExpectedPanel(
+                    f"{base}_with_mean_and_universal_baselines",
+                    "generalization",
+                    DISPLAY_NAMES[species],
+                    mean=True,
+                    universal=True,
+                ),
             )
         )
     panels.extend(
@@ -80,12 +92,12 @@ def expected_panels() -> list[ExpectedPanel]:
             ),
         )
     )
-    if len(panels) != 18 or len({panel.stem for panel in panels}) != 18:
-        raise RuntimeError("Expected exactly 18 unique generalization panels")
+    if len(panels) != 33 or len({panel.stem for panel in panels}) != 33:
+        raise RuntimeError("Expected exactly 33 unique generalization panels")
     return panels
 
 
-def _pdf_spans(page: fitz.Page) -> list[dict[str, object]]:
+def _pdf_spans(page: pymupdf.Page) -> list[dict[str, object]]:
     return [
         span
         for block in page.get_text("dict")["blocks"]
@@ -96,9 +108,9 @@ def _pdf_spans(page: fitz.Page) -> list[dict[str, object]]:
 
 def validate_pdf(path: Path, panel: ExpectedPanel) -> dict[str, object]:
     """Validate canvas, embedded font family, font sizes, and text bounds."""
-    import fitz
+    import pymupdf
 
-    with fitz.open(path) as document:
+    with pymupdf.open(path) as document:
         if len(document) != 1:
             raise ValueError(f"{path}: expected one page")
         page = document[0]
@@ -123,7 +135,9 @@ def validate_pdf(path: Path, panel: ExpectedPanel) -> dict[str, object]:
         if observed_fonts != expected_fonts:
             raise ValueError(f"{path}: font sizes {observed_fonts} != {expected_fonts}")
         outside = [
-            str(span["text"]) for span in spans if not page.rect.contains(fitz.Rect(span["bbox"]))
+            str(span["text"])
+            for span in spans
+            if not page.rect.contains(pymupdf.Rect(span["bbox"]))
         ]
         if outside:
             raise ValueError(f"{path}: text outside page {outside}")
@@ -145,6 +159,11 @@ def validate_pdf(path: Path, panel: ExpectedPanel) -> dict[str, object]:
                 )
                 if title is None or int(title["flags"]) & 16:
                     raise ValueError(f"{path}: {subplot} subplot title differs")
+            texts = [str(span["text"]) for span in spans]
+            if ("Mean" in texts) != panel.mean:
+                raise ValueError(f"{path}: Mean legend state differs")
+            if ("Universal Clock" in texts) != panel.universal:
+                raise ValueError(f"{path}: Universal Clock legend state differs")
     return {"canvas_mm": [90.0, 60.0], "font_sizes_pt": sorted(observed_fonts)}
 
 
@@ -162,7 +181,7 @@ def validate_svg(path: Path, panel: ExpectedPanel) -> dict[str, object]:
     if panel.group == "generalization":
         if svg.count("># Training Samples</text>") != 2:
             raise ValueError(f"{path}: expected two training-sample labels")
-        if svg.count(">Mean</text>") != 2:
+        if svg.count(">Mean</text>") != (2 if panel.mean else 0):
             raise ValueError(f"{path}: expected Mean in both legends")
         if svg.count(">Universal Clock</text>") != (2 if panel.universal else 0):
             raise ValueError(f"{path}: Universal Clock legend state differs")
@@ -176,9 +195,18 @@ def validate_svg(path: Path, panel: ExpectedPanel) -> dict[str, object]:
             raise ValueError(f"{path}: title italic state differs")
         if "font-family: 'Liberation Sans'" not in title_match.group(1):
             raise ValueError(f"{path}: title font differs")
-        for color in ("#7a7a7a", "#9c89b8"):
+        colors = ["#7a7a7a", "#9c89b8"]
+        if panel.mean:
+            colors.append("#9ec5e5")
+        if panel.universal:
+            colors.append("#efc28b")
+        for color in colors:
             if color not in lower:
                 raise ValueError(f"{path}: missing {color}")
+        if not panel.mean and "#9ec5e5" in lower:
+            raise ValueError(f"{path}: unexpected Mean baseline color")
+        if not panel.universal and "#efc28b" in lower:
+            raise ValueError(f"{path}: unexpected Universal Clock baseline color")
     else:
         for color in (panel.point_color, panel.curve_color, panel.shade_color):
             if color not in lower:
