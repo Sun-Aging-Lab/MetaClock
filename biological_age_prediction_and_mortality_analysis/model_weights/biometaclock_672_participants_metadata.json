@@ -25,5 +25,5 @@
     "pandas": "2.3.3",
     "joblib": "1.5.2"
   },
-  "restricted_data_note": "This repository publishes fitted BioMetaClock coefficients only; restricted InCHIANTI participant data and training/OOF code are not included."
+  "restricted_data_note": "Restricted InCHIANTI participant data and the large direct-CpG baseline artifact are not distributed. Reproducible training/OOF code is included and starts from a user-supplied analysis-ready dataset."
 }

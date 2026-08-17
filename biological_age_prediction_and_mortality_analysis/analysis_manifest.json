@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "figure4": {
+  "biological_analysis": {
     "external_samples": 3325,
     "external_datasets": 15,
     "external_component_features": [

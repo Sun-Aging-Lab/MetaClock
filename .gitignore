@@ -39,3 +39,19 @@ slurm-*.out
 *.feather
 *.h5
 *.hdf5
+
+# Local-only validation utilities
+/validate_project.py
+/generalization/validate_generalization_outputs.py
+/biological_age_prediction_and_mortality_analysis/validate_external_disease_outputs.py
+/biological_age_prediction_and_mortality_analysis/enrichment/validate_enrichment_outputs.py
+/intervention_analysis/validate_intervention_volcano.py
+
+# Local-only development tests (not required to reproduce figures)
+/chronological_age_prediction_performance/tests/
+/generalization/tests/
+/biological_age_prediction_and_mortality_analysis/tests/
+/intervention_analysis/tests/
+
+# Generated per-run provenance sidecars
+*.provenance.json

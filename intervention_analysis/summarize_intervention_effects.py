@@ -49,11 +49,9 @@ def unique_samples_for_age_correction(frame: pd.DataFrame) -> pd.DataFrame:
     if "chronological_age" in frame:
         value_columns.append("chronological_age")
     conflicts = (
-        frame.groupby(["gse_id", "sample_id", "correction_stratum"], dropna=False)[
-            value_columns
-        ]
-            .nunique(dropna=False)
-            .max(axis=1)
+        frame.groupby(["gse_id", "sample_id", "correction_stratum"], dropna=False)[value_columns]
+        .nunique(dropna=False)
+        .max(axis=1)
     )
     invalid = conflicts.loc[conflicts.gt(1)]
     if not invalid.empty:
@@ -61,9 +59,7 @@ def unique_samples_for_age_correction(frame: pd.DataFrame) -> pd.DataFrame:
             "Repeated gse_id/sample_id rows disagree on predicted or chronological age: "
             f"{invalid.index.tolist()}"
         )
-    return frame.drop_duplicates(
-        ["gse_id", "sample_id", "correction_stratum"], keep="first"
-    )
+    return frame.drop_duplicates(["gse_id", "sample_id", "correction_stratum"], keep="first")
 
 
 def age_correct(frame: pd.DataFrame) -> pd.DataFrame:

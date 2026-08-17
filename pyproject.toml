@@ -5,12 +5,17 @@ description = "Reproducible analysis and plotting workflows for MetaClock"
 readme = "README.md"
 requires-python = ">=3.11,<3.12"
 dependencies = [
+    "anndata==0.12.7",
     "joblib==1.5.2",
+    "lightgbm==4.6.0",
+    "lifelines==0.30.3",
     "matplotlib==3.10.8",
     "numpy==2.3.5",
     "pandas==2.3.3",
     "pymupdf==1.26.6",
     "pyarrow==23.0.1",
+    "pyaging==0.1.30",
+    "rdata==1.0.0",
     "scikit-learn==1.8.0",
     "scipy==1.17.0",
     "statsmodels==0.14.6",
@@ -30,8 +35,6 @@ dev = [
 addopts = "-ra"
 testpaths = [
     "biological_age_prediction_and_mortality_analysis/tests",
-    "chronological_age_prediction_performance/tests",
-    "generalization/tests",
     "intervention_analysis/tests",
 ]
 

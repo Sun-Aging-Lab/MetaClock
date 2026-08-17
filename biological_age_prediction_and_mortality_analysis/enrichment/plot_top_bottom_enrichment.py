@@ -93,9 +93,11 @@ def read_top_terms(path: Path) -> tuple[pd.DataFrame, int]:
     if not table[["p_value", "p_adjust"]].apply(lambda column: column.between(0, 1)).all().all():
         raise ValueError(f"{path} contains a P value outside [0, 1].")
     significant = int(table["p_adjust"].lt(FDR_THRESHOLD).sum())
-    plotted = table.sort_values(
-        ["p_adjust", "p_value", "term"], kind="mergesort"
-    ).head(TERMS_PER_PANEL).copy()
+    plotted = (
+        table.sort_values(["p_adjust", "p_value", "term"], kind="mergesort")
+        .head(TERMS_PER_PANEL)
+        .copy()
+    )
     plotted["minus_log10_fdr"] = -np.log10(plotted["p_adjust"].clip(lower=np.finfo(float).tiny))
     plotted["significant"] = plotted["p_adjust"].lt(FDR_THRESHOLD)
     return plotted.reset_index(drop=True), significant
@@ -153,9 +155,7 @@ def plot_pair(
         axis.invert_yaxis()
         axis.set_xlim(-0.04 * max_x, max_x)
         axis.set_xlabel("−log₁₀(BH-adjusted P)", labelpad=2.0)
-        axis.set_title(
-            f"{label}\nFDR < 0.05: {significant[direction]}", fontweight="bold", pad=4.0
-        )
+        axis.set_title(f"{label}\nFDR < 0.05: {significant[direction]}", fontweight="bold", pad=4.0)
         axis.grid(axis="x", color="#D0D0D0", linewidth=0.35, alpha=0.75)
         axis.set_axisbelow(True)
         axis.tick_params(axis="x", pad=1.5)
@@ -180,8 +180,13 @@ def plot_pair(
         Line2D([0], [0], color="#009E73", linestyle="--", linewidth=0.8, label="FDR = 0.05"),
         *[
             Line2D(
-                [0], [0], marker="o", linestyle="none", markerfacecolor=library.color,
-                markeredgecolor="#222222", markeredgewidth=0.2,
+                [0],
+                [0],
+                marker="o",
+                linestyle="none",
+                markerfacecolor=library.color,
+                markeredgecolor="#222222",
+                markeredgewidth=0.2,
                 markersize=math.sqrt(14 + 48 * math.sqrt(value / max_hits)),
                 label=f"Region hits: {value}",
             )

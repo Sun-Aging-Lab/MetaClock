@@ -1,68 +1,96 @@
-# Biological-age weights, external disease, and enrichment analysis
+# Biological-age prediction and mortality analysis
 
-This directory publishes the unrestricted analysis needed to apply BioMetaClock,
-analyze external disease cohorts, render the external-disease heatmap, and run
-CpG-weight enrichment. InCHIANTI is restricted: participant-level inputs,
-training/OOF code, sample identifiers, performance/reliability barplots,
-mortality analysis, and Cox/Kaplan–Meier plotting code are intentionally absent.
+The directory has five analysis entry points.  For each entry point, edit the
+single line
 
-## Published BioMetaClock weights
-
-`model_weights/biometaclock_672_participants_weights.csv` contains the fitted
-17-component BioMetaClock trained on one sample from each of 672 participants.
-It records feature order, scaler mean and scale, standardized coefficients, and
-equivalent raw-scale coefficients. The accompanying JSON records both
-intercepts, selected alpha, convergence count, estimator definition, software
-versions, and the SHA-256 digest of the restricted fitted artifact. It contains
-no participant data or internal filesystem path.
-
-The published raw-scale form is
-
-```text
-prediction = raw_intercept + component_predictions @ raw_coefficient
+```python
+DATASET_PATH = Path("/path/to/your/file")  # fill in your path
 ```
 
-Apply it to a CSV containing the exact 17 component-clock columns:
+and run the script from the project root.  Output tables, fitted artifacts, and
+all PDF/SVG plots are written under
+`biological_age_prediction_and_mortality_analysis/outputs/`.
+
+## 1. Biological-age prediction
+
+Input: one sample per row with `ID`, `sampleID`, `age_years`,
+`clinical_phenoage`, `clinical_phenoage_complete_case`, and CpG beta columns
+named `cg...`.  The 17 canonical component columns may be supplied; otherwise
+the script computes them with PyAging.  It applies the complete-case flag,
+keeps every sample from a participant in the same outer fold, runs five-fold
+OOF BioMeta/direct-CpG training, draws MAE/Pearson bars, and refits both
+artifacts on one baseline sample per participant for external use.
 
 ```bash
-python -m biological_age_prediction_and_mortality_analysis.apply_biometaclock_weights \
-  --components /path/to/your/file
+python -m biological_age_prediction_and_mortality_analysis.run_biological_age_prediction
 ```
 
-The ordered components are `dnamphenoage`, `hrsinchphenoage`, `dnamic`,
-`zhangmortality`, `systemsage`, `systemsageblood`, `systemsagebrain`,
-`systemsageheart`, `systemsagehormone`, `systemsageimmune`,
-`systemsageinflammation`, `systemsagekidney`, `systemsageliver`,
-`systemsagelung`, `systemsagemetabolic`, `systemsagemusculoskeletal`, and
-`dunedinpace`. `dnamfitage` is globally excluded.
+## 2. Duplicate-sample reliability
 
-## Unrestricted result workflows
-
-- `analyze_external_disease_differences.py` performs within-dataset age
-  correction and maintained SciPy Welch tests on an analysis-ready prediction
-  table.
-- `plot_external_disease_panel.py` renders the external disease heatmap.
-- `render_external_disease_panel.py` is the external-disease rendering entry point.
-- `validate_external_disease_outputs.py` validates its schema,
-  counts, vector dimensions, fonts, and global component exclusion.
-
-External inputs use `Path("/path/to/your/file")  # fill in your path` where they
-enter the workflow. Generated intermediate and output paths are project-relative.
-There is no mortality source-table or participant-level interface.
-
-Typical rendering and validation commands are:
+Input: the same row-oriented InCHIANTI dataset.  Every participant with exactly
+two DNAm samples is held out in full.  The direct-CpG baseline and BioMeta are
+trained on all valid participants with exactly one DNAm sample, while
+DNAmPhenoAge is obtained by direct PyAging inference.  All three comparators are
+then summarized as paired prediction differences.
 
 ```bash
-python -m biological_age_prediction_and_mortality_analysis.analyze_external_disease_differences
-python -m biological_age_prediction_and_mortality_analysis.render_external_disease_panel
-python -m biological_age_prediction_and_mortality_analysis.validate_external_disease_outputs
+python -m biological_age_prediction_and_mortality_analysis.run_duplicate_sample_reliability
 ```
 
-## Enrichment
+## 3. External disease analysis
 
-The enrichment subdirectory contains the chronological and biological
-top/bottom-1,000 GREAT workflow. The publication table
-`enrichment/top_bottom_1000_cpg_weights.csv` has 4,000 rows with columns
-`group`, `direction`, `rank`, `cpg`, and `weight`; every group/direction has
-exactly 1,000 deterministic entries. See `enrichment/README.md` for the union
-background, ranking definition, rGREAT parameters, and commands.
+Input: one external DNAm dataset with `sampleID`, `age`, `disease_state`, and
+CpG columns; optional `dataset` and `disease` columns control heatmap labels.
+Run script 1 first.  This entry point loads its complete BioMeta and direct-CpG
+baseline artifacts, calls the PyAging API for the 17 BioMeta components and
+DNAmPhenoAge, performs within-dataset age correction and Welch tests, and draws
+the three-model heatmap.  The large baseline artifact is generated locally and
+is not replaced by partial or invented weights in this repository.
+
+```bash
+python -m biological_age_prediction_and_mortality_analysis.run_external_disease_analysis
+```
+
+## 4. Cox analysis
+
+Input: the script-1 columns plus `survival_time_years`, `event`, and
+`sex_male`.  The script selects one baseline sample per participant, assigns
+participant-level age-stratified folds, trains both predictors in five folds,
+fits the three pooled-OOF Cox specifications on raw covariates with the formal
+`1e-6` penalizer, converts prediction coefficients to population-SD units for
+display, and draws the forest plot.
+
+```bash
+python -m biological_age_prediction_and_mortality_analysis.run_cox_analysis
+```
+
+## 5. Kaplan–Meier analysis
+
+Input: the script-1 columns plus `INTV_MOR` (`0` for alive/censored; `4`, `5`,
+or `6` for death at that follow-up wave).  The script selects one baseline
+sample per participant, assigns 10-year-age-bin folds, trains both predictors,
+age-corrects pooled OOF scores, and plots bottom/top-20% Kaplan–Meier curves and
+log-rank results.
+
+```bash
+python -m biological_age_prediction_and_mortality_analysis.run_kaplan_meier_analysis
+```
+
+## CpG-weight enrichment
+
+The enrichment workflow and fixed GREAT parameters are documented in
+`enrichment/README.md`.  Its Python entry points are:
+
+```bash
+python -m biological_age_prediction_and_mortality_analysis.enrichment.build_component_weight_rankings chrono
+python -m biological_age_prediction_and_mortality_analysis.enrichment.build_component_weight_rankings bio
+python -m biological_age_prediction_and_mortality_analysis.enrichment.select_top_bottom_cpg_foregrounds
+python -m biological_age_prediction_and_mortality_analysis.enrichment.plot_top_bottom_enrichment
+```
+
+The two R entry points are:
+
+```bash
+Rscript biological_age_prediction_and_mortality_analysis/enrichment/build_27k_450k_epic_union_background.R results/enrichment/array_union
+Rscript biological_age_prediction_and_mortality_analysis/enrichment/run_rgreat_top_bottom_enrichment.R chrono go_bp
+```

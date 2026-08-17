@@ -1,73 +1,67 @@
 # Chronological-age prediction performance
 
-This directory contains the compact, reproducible workflow for:
+This directory reproduces the chronological-age comparisons from a
+wide table of component-clock predictions.  It intentionally contains only
+two runnable workflows: an all-architecture/component comparison and a
+cumulative component-clock ablation study.  Both train on the supplied
+training table, test on the supplied test table, and write all figures to the
+fixed relative directory `results/chronological_age_prediction/`.
 
-- model-architecture MAE--Pearson-r scatter;
-- component-clock MAE--Pearson-r scatter;
-- three cumulative component-clock ablations (Zhang BLUP, Han, then Skin&Blood);
-- the component-clock versus supervised MetaClock-architecture comparison.
+## Input schema
 
-## Input layout
-
-The scripts deliberately do not embed a cluster-specific input location. Fill
-each `Path("/path/to/your/file")  # fill in your path` default at the top of
-the relevant script, or pass the input explicitly on the command line. The
-expected source files are:
+Supply one training file and one test file, each as CSV (or Parquet).  Every
+row is one sample and must contain the following columns:
 
 ```text
-your input directory/
-├── heldout_predictions_long.csv
-├── model_architecture_metrics.csv
-├── component_clock_metrics.csv
-├── architecture_comparison_metrics.csv
-└── component_clock_ablation/
-    ├── step_01_source_data.csv
-    ├── step_02_source_data.csv
-    └── step_03_source_data.csv
+dataset, sample_id, age,
+horvath2013, hannum, dnamphenoage, altumage, han, encen40,
+hrsinchphenoage, lin, skinandblood, yingcausage, zhangblup, zhangen,
+pchorvath2013, pchannum, pcphenoage, pcskinandblood
 ```
 
-`heldout_predictions_long.csv` has `dataset`, `sample_id`, `age`, `predictor`,
-and `prediction`. The metric tables require `dataset`, their label column
-(`model` or `predictor`), `mae`, and `pearson_r`. The ablation files also
-require `ablation_step` and cumulative semicolon-separated `removed_clocks`.
-The architecture comparison reads a semantic source table with `dataset`,
-`group`, `label`, `n`, `mae`, and `pearson_r`; `group` is either `Single clock`
-or `MetaClock architecture`.
+`dataset` labels the held-out panel in the test file; `dataset, sample_id`
+must be unique; `age` and every component-clock prediction must be finite
+numeric values.  The architecture workflow uses the original
+estimators (scikit-learn, PyTorch, and LightGBM), so the runtime environment
+must include `lightgbm` in addition to the project's standard dependencies.
 
-The four held-out datasets are `GSE147221`, `GSE157131`, `GSE234461`, and
-`GSE72680`. All age-prediction statistics are standard `scikit-learn` MAE and
-two-sided `scipy.stats.pearsonr` calculations.
+## Run all architecture, component, and border plots
 
-## Commands
-
-Run these commands from the repository root after filling in the input paths,
-or provide alternative project-relative or absolute `--...` paths:
+Edit the two defaults at the top of
+`train_test_architectures.py` to your two paths, then run:
 
 ```bash
-uv run python -m chronological_age_prediction_performance.summarize_heldout_age_prediction_metrics --label-column predictor
-uv run python -m chronological_age_prediction_performance.summarize_heldout_age_prediction_metrics --label-column model
-uv run python -m chronological_age_prediction_performance.plot_chronological_age_prediction_scatter
-uv run python -m chronological_age_prediction_performance.plot_component_clock_ablation_scatter
-uv run python -m chronological_age_prediction_performance.plot_metaclock_architecture_comparison_scatter \
-  --metrics /path/to/your/file
-uv run python -m chronological_age_prediction_performance.validate_chronological_age_prediction_outputs
+uv run python -m chronological_age_prediction_performance.train_test_architectures
 ```
 
-Outputs are PDF and editable-text SVG files under
-`results/chronological_age_prediction/`. The vector plots use a 180 x 65 mm
-print canvas and retain the formal output stems
-`pearson_mae_model_architecture`, `pearson_mae_submodel`,
-`ablation_step_01_without_zhangblup`, `ablation_step_02_without_han`,
-`ablation_step_03_without_skinandblood`, and
-`pearson_mae_submodel_architectures`. The `--label-column` argument preserves
-either `predictor` or `model`, so the metric summarizer can create both
-primary input tables. The architecture-comparison command writes its validated
-source table beside the vector output. This workflow consumes held-out
-predictions/metrics; model fitting remains upstream because the scatter plots
-should never retrain on the plotted test datasets.
+Alternatively, pass only the two path arguments:
 
-The formal color maps are defined once in `plotting.py`: MetaClock and SVM use
-the reserved dark-blue `tab20` color, while component clocks intentionally skip
-that color. The validator requires one 180 x 65 mm PDF and one editable-text SVG
-for every expected plot, and checks that the PDF embeds Liberation Sans. No
-cluster-specific path is embedded in the workflow.
+```bash
+uv run python -m chronological_age_prediction_performance.train_test_architectures \
+  --training-dataset /path/to/training.csv \
+  --test-dataset /path/to/test.csv
+```
+
+This writes architecture and component MAE--Pearson scatter plots, plus the
+formal dashed-boundary comparison plot, as PDF and editable-text SVG files.
+It also writes the corresponding metric CSV files.
+
+## Run all ablations
+
+Edit the same two defaults at the top of `train_test_ablation.py`, then run:
+
+```bash
+uv run python -m chronological_age_prediction_performance.train_test_ablation
+```
+
+Or provide only the two path arguments:
+
+```bash
+uv run python -m chronological_age_prediction_performance.train_test_ablation \
+  --training-dataset /path/to/training.csv \
+  --test-dataset /path/to/test.csv
+```
+
+The script refits the linear-SVR MetaClock after cumulatively removing Zhang
+BLUP, Han, and Skin&Blood, and writes the three resulting PDF/SVG scatter
+plots and their source metric tables.

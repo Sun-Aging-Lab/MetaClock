@@ -41,11 +41,11 @@ def load_manifest(path: Path = MANIFEST_PATH) -> dict[str, Any]:
 
 
 MANIFEST = load_manifest()
-FIGURE4 = MANIFEST["figure4"]
+BIOLOGICAL_ANALYSIS = MANIFEST["biological_analysis"]
 ENRICHMENT = MANIFEST["enrichment"]
 EXCLUDED_MODELS = frozenset(MANIFEST["globally_excluded_models"])
-EXTERNAL_COMPONENTS = tuple(FIGURE4["external_component_features"])
-EXTERNAL_MODELS = tuple(FIGURE4["external_models"])
+EXTERNAL_COMPONENTS = tuple(BIOLOGICAL_ANALYSIS["external_component_features"])
+EXTERNAL_MODELS = tuple(BIOLOGICAL_ANALYSIS["external_models"])
 
 
 def require_exact_sequence(observed: list[str], expected: tuple[str, ...], label: str) -> None:

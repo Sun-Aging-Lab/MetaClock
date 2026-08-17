@@ -3,9 +3,8 @@
 This repository contains compact, reproducible workflows for chronological-age
 prediction, cross-domain generalization, biological-age and disease analysis,
 functional enrichment, and intervention analysis. Raw methylation matrices and
-cohort metadata are intentionally not bundled. The fitted 17-component
-BioMetaClock coefficient table is included without participant data; every other
-external dataset/model input uses the explicit placeholder
+cohort metadata are intentionally not bundled. Every external dataset input
+uses the explicit placeholder
 `Path("/path/to/your/file")  # fill in your path`; it can be replaced directly
 and, where exposed by an entry point, overridden with a command-line option.
 
@@ -18,9 +17,8 @@ to evaluate chronological-age prediction, quantify generalization across array
 platforms, tissues, and species, and study biological-age associations with
 disease and interventions. It also includes CpG-weight enrichment
 analysis for interpreting the biological processes represented by the component
-models. Training, aggregation, statistical testing, plotting, and validation
-are separated into focused scripts so that each stage can be rerun or audited
-independently.
+models. Training, aggregation, statistical testing, and plotting are organized
+into focused entry points so each workflow can be rerun directly.
 
 ## Project layout
 
@@ -30,7 +28,7 @@ generalization/
 ├── array/                                         array generalization
 ├── tissue/                                        tissue generalization
 └── species/                                       species generalization and three evolutionary plots
-biological_age_prediction_and_mortality_analysis/  BioMetaClock weights, external disease, and enrichment
+biological_age_prediction_and_mortality_analysis/  biological-age, disease, survival, and enrichment
 intervention_analysis/                             intervention effects and FDR volcano plot
 ```
 
@@ -45,7 +43,6 @@ environment from the repository root:
 
 ```bash
 uv sync --frozen
-uv run --frozen python validate_project.py
 uv run --frozen pytest
 uv run --frozen ruff check .
 ```
@@ -68,10 +65,10 @@ R dependencies are therefore recorded separately from the Python lockfile.
   standardized, while the spline basis is not scaled a second time.
 - Plotting scripts write matching PDF and SVG vector outputs with consistent
   typography and fixed canvas sizes.
-- The biological-age directory publishes the fitted 672-participant
-  BioMetaClock weights without restricted participant data or training/OOF
-  code. Intervention training remains a separate, explicitly parameterized
-  workflow.
+- The biological-age entry points accept user-supplied cohort paths, keep
+  repeated samples from the same participant in one outer fold, and write
+  trained artifacts only to local output directories. Restricted cohort data
+  are not bundled.
 - Biological component lists reject `dnamfitage` explicitly and validate the
   exact ordered feature manifests.
 - Enrichment uses the 27K + 450K + EPIC v1.0 B4 union as the GREAT universe and
@@ -82,7 +79,4 @@ R dependencies are therefore recorded separately from the Python lockfile.
   testing correction use maintained scientific packages rather than local
   reimplementations.
 
-Run any entry point with `--help` to inspect its expected inputs. The
-repository validator checks directory structure, syntax, path portability, and
-that every marked external input uses the exact portable placeholder, without
-executing long model fits.
+Each analysis README lists its input schema and complete invocation commands.

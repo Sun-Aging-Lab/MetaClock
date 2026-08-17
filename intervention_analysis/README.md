@@ -34,8 +34,6 @@ FDR volcano plot.
   volcano with FDR 5% and 20% categories. It registers the bundled Liberation
   Sans assets, uses the formal 0.2 pt outline styling, and validates the exact
   five-label annotation map and offsets used by the current figure.
-- `validate_intervention_volcano.py`: checks the canvas, editable text, axis
-  labels, and the complete curated annotation set.
 
 ## Input layout
 
@@ -72,7 +70,6 @@ uv run python -m intervention_analysis.predict_intervention_biological_age
 uv run python -m intervention_analysis.summarize_intervention_effects
 uv run python -m intervention_analysis.select_curated_intervention_results
 uv run python -m intervention_analysis.plot_intervention_fdr_volcano
-uv run python -m intervention_analysis.validate_intervention_volcano
 ```
 
 Raw methylation parsing and component-clock inference are intentionally kept

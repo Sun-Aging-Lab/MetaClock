@@ -1,4 +1,4 @@
-"""Shared Figure 4 typography, labels, and vector-output helpers."""
+"""Shared biological-analysis typography, labels, and vector-output helpers."""
 
 from __future__ import annotations
 
@@ -24,9 +24,7 @@ FONT_HASHES = {
     "LiberationSans-Italic.ttf": (
         "e5bae5c4cde31f22142753855f4f8fb86da6ff39955ed3c0a11248b0d16948b0"
     ),
-    "LiberationSans-Bold.ttf": (
-        "788abee4c806d660e8aee46689dd8540cd4bb98da03dcc9d171ce3efd99a9173"
-    ),
+    "LiberationSans-Bold.ttf": ("788abee4c806d660e8aee46689dd8540cd4bb98da03dcc9d171ce3efd99a9173"),
     "LiberationSans-BoldItalic.ttf": (
         "698da70fc191cc5f33ad4d6d3fe830fe4624b898ea2e3169955928b7c491f1ee"
     ),
@@ -41,6 +39,7 @@ LABELS = {
 COLORS = {
     "bio_metaclock": "#0072B2",
     "baseline": "#4D4D4D",
+    "dnamphenoage": "#009E73",
     "clinical_phenoage": "#CC79A7",
 }
 

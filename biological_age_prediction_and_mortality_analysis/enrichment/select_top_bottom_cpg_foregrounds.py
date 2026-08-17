@@ -12,21 +12,11 @@ import pandas as pd
 from ..config import ENRICHMENT, EXCLUDED_MODELS
 from ..provenance import file_record, sha256, write_json
 
-DEFAULT_CHRONO_RANKING = Path(
-    "results/enrichment/rankings/chrono_cpg_weights.csv.gz"
-)
-DEFAULT_BIO_RANKING = Path(
-    "results/enrichment/rankings/bio_cpg_weights.csv.gz"
-)
-DEFAULT_CHRONO_AUDIT = Path(
-    "results/enrichment/rankings/chrono_ranking_summary.json"
-)
-DEFAULT_BIO_AUDIT = Path(
-    "results/enrichment/rankings/bio_ranking_summary.json"
-)
-DEFAULT_MEMBERSHIP = Path(
-    "results/enrichment/array_union/platform_membership.csv.gz"
-)
+DEFAULT_CHRONO_RANKING = Path("results/enrichment/rankings/chrono_cpg_weights.csv.gz")
+DEFAULT_BIO_RANKING = Path("results/enrichment/rankings/bio_cpg_weights.csv.gz")
+DEFAULT_CHRONO_AUDIT = Path("results/enrichment/rankings/chrono_ranking_summary.json")
+DEFAULT_BIO_AUDIT = Path("results/enrichment/rankings/bio_ranking_summary.json")
+DEFAULT_MEMBERSHIP = Path("results/enrichment/array_union/platform_membership.csv.gz")
 DEFAULT_OUTPUT = Path("results/enrichment/inputs")
 
 
@@ -51,9 +41,7 @@ def validate_ranking_provenance(path: Path, ranking_path: Path, model: str) -> N
 
     audit = json.loads(path.read_text(encoding="utf-8"))
     expected_key = (
-        "chronological_affine_components"
-        if model == "chrono"
-        else "biological_affine_components"
+        "chronological_affine_components" if model == "chrono" else "biological_affine_components"
     )
     if audit.get("included_components") != ENRICHMENT[expected_key]:
         raise ValueError(f"{model} ranking components do not exactly match the analysis manifest.")

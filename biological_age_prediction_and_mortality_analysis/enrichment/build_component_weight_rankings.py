@@ -20,11 +20,7 @@ DEFAULT_OUTPUT = Path("results/enrichment/rankings")
 
 def expected_components(model: str) -> tuple[str, ...]:
     """Return the exact affine components allowed to contribute CpG weights."""
-    key = (
-        "chronological_affine_components"
-        if model == "chrono"
-        else "biological_affine_components"
-    )
+    key = "chronological_affine_components" if model == "chrono" else "biological_affine_components"
     return tuple(ENRICHMENT[key])
 
 

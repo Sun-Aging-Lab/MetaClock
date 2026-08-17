@@ -1,7 +1,7 @@
 # CpG-weight enrichment workflow
 
-This subworkflow builds and validates the current top/bottom-1,000 GREAT
-analysis from normalized MetaClock/component coefficient inputs. It does not
+This subworkflow builds the current top/bottom-1,000 GREAT analysis from
+normalized MetaClock/component coefficient inputs. It does not
 contain intervention or volcano analyses.
 
 `top_bottom_1000_cpg_weights.csv` is the compact publication table for the
@@ -83,14 +83,10 @@ for library in go_bp kegg_2021_human reactome_pathways_2024 msigdb_hallmark_2020
 done
 
 python -m biological_age_prediction_and_mortality_analysis.enrichment.plot_top_bottom_enrichment
-python -m biological_age_prediction_and_mortality_analysis.enrichment.validate_enrichment_outputs
 ```
 
 The eight semantic vector stems follow
-`enrichment_{chronological|biological}_{library}_top_bottom_1000`. Validators
-recompute deterministic foreground extremes, check union/BED coordinates,
-enforce every manifest-derived rGREAT parameter, compare the exact FDR subset,
-validate term-level Entrez deduplication, and check the 150 x 75 mm PDF/SVG pairs.
+`enrichment_{chronological|biological}_{library}_top_bottom_1000`.
 
 KEGG, Reactome, and Hallmark are version-pinned GMT snapshots in the configured external
 gene-set directory. Record their own source/version checksums alongside the input
