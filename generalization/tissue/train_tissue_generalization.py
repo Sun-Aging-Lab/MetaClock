@@ -72,7 +72,9 @@ ALPHAS = np.logspace(0.0, -5.0, 30)
 L1_RATIO = 0.5
 MAX_ITER = 20_000
 TOLERANCE = 1e-4
-CONFIG_ID = "generalization-v2-split105-30x50-without-replacement-scaled-encv5-scaled-svr"
+CONFIG_ID = (
+    "generalization-v3-split105-30x50-pandas-sample-scaled-encv5-scaled-svr"
+)
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 RESULT_ROOT = PROJECT_ROOT / "results" / "generalization" / "tissue"
 
@@ -299,9 +301,9 @@ def evaluate_point(
     """Run all five model rows for each of 50 without-replacement resamples."""
     rows: list[dict[str, object]] = []
     for repeat_id in range(N_RESAMPLES):
-        rng = np.random.default_rng(RESAMPLE_SEED + repeat_id + size * 1000)
-        positions = rng.choice(len(direct_train), size=size, replace=False)
-        direct_subset, meta_subset = direct_train.iloc[positions], meta_train.iloc[positions]
+        seed = RESAMPLE_SEED + repeat_id + size * 1000
+        sample_ids = direct_train.sample(n=size, replace=False, random_state=seed).index
+        direct_subset, meta_subset = direct_train.loc[sample_ids], meta_train.loc[sample_ids]
         rows.append(fit_model("EN", direct_subset, direct_test, size, repeat_id))
         rows.append(fit_model("Meta EN", meta_subset, meta_test, size, repeat_id))
         rows.append(fit_model("SVM", direct_subset, direct_test, size, repeat_id))
@@ -419,6 +421,7 @@ def main() -> int:
             "resampling": {
                 "repeats": N_RESAMPLES,
                 "with_replacement": False,
+                "sampler": "pandas.DataFrame.sample",
                 "seed_formula": "42 + repeat_id + training_size * 1000",
             },
             "elastic_net_cv": {

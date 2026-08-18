@@ -41,6 +41,7 @@ EXPECTED_CONFIG_ID = (
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 RESULT_ROOT = PROJECT_ROOT / "results" / "generalization" / "species"
 FIGURE_ROOT = PROJECT_ROOT / "figures" / "generalization" / "species"
+PAIRWISE_EVOLUTIONARY_DISTANCE = PROJECT_ROOT / "pairwise_evolutionary_distances.csv"
 
 PANEL_WIDTH_MM = 90.0
 PANEL_HEIGHT_MM = 60.0
@@ -413,14 +414,16 @@ def find_evolution_sidecar(filename: str) -> Path:
 
 def attach_evolution_metadata(coefficients: pd.DataFrame) -> pd.DataFrame:
     """Attach the 45 pairwise distances and two absolute trait differences."""
-    distance_path = find_evolution_sidecar("pairwise_distance.tsv")
-    distance_frame = pd.read_csv(distance_path, sep="\t")
-    if len(distance_frame) != 45 or set(distance_frame.columns) != {
-        "species_a",
-        "species_b",
-        "distance",
-    }:
-        raise ValueError(f"{distance_path}: expected 45 species_a/species_b/distance rows")
+    distance_path = PAIRWISE_EVOLUTIONARY_DISTANCE
+    distance_frame = pd.read_csv(distance_path)
+    required_distance_columns = {"species_a", "species_b", "distance"}
+    if (
+        len(distance_frame) != 45
+        or not required_distance_columns.issubset(distance_frame.columns)
+    ):
+        raise ValueError(
+            f"{distance_path}: expected 45 rows with species_a/species_b/distance"
+        )
     distances = {
         frozenset((str(row.species_a), str(row.species_b))): float(row.distance)
         for row in distance_frame.itertuples(index=False)
