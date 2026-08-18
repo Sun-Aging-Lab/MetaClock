@@ -10,17 +10,10 @@ MANIFEST_PATH = Path(__file__).with_name("analysis_manifest.json")
 
 
 def load_manifest(path: Path = MANIFEST_PATH) -> dict[str, Any]:
-    """Read the versioned manifest and enforce its global exclusion invariant."""
+    """Read and validate the versioned analysis manifest."""
     manifest = json.loads(path.read_text(encoding="utf-8"))
     if manifest.get("schema_version") != 1:
         raise ValueError("Unsupported analysis manifest schema.")
-    excluded = {str(value).lower() for value in manifest["globally_excluded_models"]}
-    if excluded != {"dnamfitage"}:
-        raise ValueError("The manifest must globally exclude exactly dnamfitage.")
-    serialized = json.dumps(manifest).lower()
-    # The exclusion declaration itself is the only permitted occurrence.
-    if serialized.count("dnamfitage") != 1:
-        raise ValueError("dnamfitage appears outside the global exclusion declaration.")
     enrichment = manifest["enrichment"]
     for prefix, expected_candidates, expected_affine in (
         ("chronological", 16, 8),
@@ -43,7 +36,6 @@ def load_manifest(path: Path = MANIFEST_PATH) -> dict[str, Any]:
 MANIFEST = load_manifest()
 BIOLOGICAL_ANALYSIS = MANIFEST["biological_analysis"]
 ENRICHMENT = MANIFEST["enrichment"]
-EXCLUDED_MODELS = frozenset(MANIFEST["globally_excluded_models"])
 EXTERNAL_COMPONENTS = tuple(BIOLOGICAL_ANALYSIS["external_component_features"])
 EXTERNAL_MODELS = tuple(BIOLOGICAL_ANALYSIS["external_models"])
 

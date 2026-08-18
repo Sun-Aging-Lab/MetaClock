@@ -36,8 +36,8 @@ environment from the repository root:
 
 ```bash
 uv sync --frozen
-uv run --frozen pytest
-uv run --frozen ruff check .
+python -m pytest
+python -m ruff check .
 ```
 
 Python dependency versions are pinned in `pyproject.toml` and fully resolved in

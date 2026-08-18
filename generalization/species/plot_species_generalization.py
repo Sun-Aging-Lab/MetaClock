@@ -10,7 +10,6 @@ the Mean curve.  Every layout is exported as PDF and SVG.
 from __future__ import annotations
 
 import json
-import warnings
 from pathlib import Path
 
 import matplotlib
@@ -19,10 +18,6 @@ import numpy as np
 import pandas as pd
 from matplotlib.axes import Axes
 from matplotlib.ticker import FormatStrFormatter
-from sklearn.exceptions import ConvergenceWarning
-from sklearn.linear_model import ElasticNet
-from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import SplineTransformer
 
 from generalization.fonts import register_fonts
 
@@ -41,32 +36,12 @@ EXPECTED_CONFIG_ID = (
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 RESULT_ROOT = PROJECT_ROOT / "results" / "generalization" / "species"
 FIGURE_ROOT = PROJECT_ROOT / "figures" / "generalization" / "species"
-PAIRWISE_EVOLUTIONARY_DISTANCE = PROJECT_ROOT / "pairwise_evolutionary_distances.csv"
 
 PANEL_WIDTH_MM = 90.0
 PANEL_HEIGHT_MM = 60.0
 DIRECT_COLOR = "#B77729"
 META_COLOR = "#4286A1"
 MEAN_COLOR = "#7A7A7A"
-EVOLUTION_RESAMPLES = 200
-EVOLUTION_SEED = 42
-EVOLUTION_STYLE = {
-    "distance": ("#839A8E", "#557264", "#C8D4CD"),
-    "maximum_lifespan_difference_years": ("#7895A1", "#466B7A", "#C7D3D8"),
-    "gestation_difference_days": ("#AC8782", "#8A625E", "#D8C4C1"),
-}
-SPECIES = (
-    "BosTaurus",
-    "DelphinapterusLeucas",
-    "EquusCaballus",
-    "HeterocephalusGlaber",
-    "HomoSapiens",
-    "MacacaMulatta",
-    "MusMusculus",
-    "OvisAries",
-    "PapioHamadryas",
-    "RattusNorvegicus",
-)
 
 
 ######################## SHARD AGGREGATION ###################################
@@ -353,236 +328,6 @@ def plot_dataset(dataset_dir: Path) -> list[Path]:
     return outputs
 
 
-########################## EVOLUTION PANELS ##################################
-
-
-def collect_evolution_coefficients() -> pd.DataFrame | None:
-    """Collect ten target-species coefficient tables, or report pending work."""
-    paths = sorted(RESULT_ROOT.glob("*/evolution_coefficients.tsv"))
-    if not paths:
-        print(
-            "[evolution pending] No *_elasticnetcv inputs were supplied; "
-            "few-shot panels are complete."
-        )
-        return None
-    frames = [pd.read_csv(path, sep="\t") for path in paths]
-    frame = pd.concat(frames, ignore_index=True)
-    required = {"test_species", "component_species", "coefficient"}
-    if not required.issubset(frame.columns):
-        raise ValueError("Evolution coefficient tables have an invalid schema")
-    target_counts = frame.groupby("test_species")["component_species"].nunique()
-    if len(target_counts) < 10 or not target_counts.eq(9).all() or len(frame) < 90:
-        print(
-            f"[evolution pending] Found {len(target_counts)}/10 species and {len(frame)}/90 "
-            "directed coefficients; run all species before drawing evolution panels."
-        )
-        return None
-    if (
-        len(target_counts) != 10
-        or len(frame) != 90
-        or frame.duplicated(["test_species", "component_species"]).any()
-    ):
-        raise ValueError("Evolution requires exactly 90 unique directed pairs from ten species")
-    if set(target_counts.index) != set(SPECIES):
-        raise ValueError("Evolution target species differ from the formal ten-species set")
-    for target, group in frame.groupby("test_species"):
-        expected_components = set(SPECIES) - {str(target)}
-        if set(group["component_species"]) != expected_components:
-            raise ValueError(f"{target}: evolution component-species set is not leave-one-out")
-    coefficients = pd.to_numeric(frame["coefficient"], errors="raise").to_numpy(float)
-    if not np.isfinite(coefficients).all() or (coefficients < 0).any():
-        raise ValueError("Evolution coefficients must be finite and non-negative")
-    return frame.loc[:, ["test_species", "component_species", "coefficient"]]
-
-
-def find_evolution_sidecar(filename: str) -> Path:
-    """Find a shared sidecar beside one recorded species input file."""
-    candidates: set[Path] = set()
-    for provenance_path in RESULT_ROOT.glob("*/shards/size_00.provenance.json"):
-        provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
-        input_path = Path(str(provenance["input_path"]))
-        candidate = input_path.parent / filename
-        if candidate.is_file():
-            candidates.add(candidate.resolve())
-    if len(candidates) != 1:
-        raise FileNotFoundError(
-            f"Expected one shared {filename!r} beside the species input files; found "
-            f"{sorted(str(path) for path in candidates)}"
-        )
-    return candidates.pop()
-
-
-def attach_evolution_metadata(coefficients: pd.DataFrame) -> pd.DataFrame:
-    """Attach the 45 pairwise distances and two absolute trait differences."""
-    distance_path = PAIRWISE_EVOLUTIONARY_DISTANCE
-    distance_frame = pd.read_csv(distance_path)
-    required_distance_columns = {"species_a", "species_b", "distance"}
-    if (
-        len(distance_frame) != 45
-        or not required_distance_columns.issubset(distance_frame.columns)
-    ):
-        raise ValueError(
-            f"{distance_path}: expected 45 rows with species_a/species_b/distance"
-        )
-    distances = {
-        frozenset((str(row.species_a), str(row.species_b))): float(row.distance)
-        for row in distance_frame.itertuples(index=False)
-    }
-    if len(distances) != 45:
-        raise ValueError(f"{distance_path}: duplicate unordered species pairs")
-
-    life_path = find_evolution_sidecar("life_history.tsv")
-    traits = pd.read_csv(life_path, sep="\t").set_index("model_species")
-    required_traits = {"maximum_lifespan_years", "gestation_days"}
-    species = set(coefficients["test_species"]) | set(coefficients["component_species"])
-    if set(traits.index) != species or traits.index.has_duplicates:
-        raise ValueError(f"{life_path}: species rows do not match the ten evaluated species")
-    if not required_traits.issubset(traits.columns):
-        raise ValueError(f"{life_path}: missing {sorted(required_traits - set(traits.columns))}")
-
-    result = coefficients.copy()
-    result["distance"] = [
-        distances[frozenset((test, component))]
-        for test, component in zip(result["test_species"], result["component_species"], strict=True)
-    ]
-    for source, destination in (
-        ("maximum_lifespan_years", "maximum_lifespan_difference_years"),
-        ("gestation_days", "gestation_difference_days"),
-    ):
-        values = pd.to_numeric(traits[source], errors="raise")
-        result[destination] = (
-            result["test_species"].map(values) - result["component_species"].map(values)
-        ).abs()
-    numeric = result[
-        [
-            "coefficient",
-            "distance",
-            "maximum_lifespan_difference_years",
-            "gestation_difference_days",
-        ]
-    ].to_numpy(float)
-    if not np.isfinite(numeric).all():
-        raise ValueError("Evolution relationship table contains non-finite values")
-    return result
-
-
-def spline_model() -> Pipeline:
-    """Build the current formal cubic-spline/fixed-alpha trend model."""
-    return Pipeline(
-        [
-            ("spline", SplineTransformer(n_knots=3, degree=3, include_bias=False)),
-            (
-                "model",
-                ElasticNet(
-                    alpha=0.001,
-                    l1_ratio=0.5,
-                    max_iter=1_000,
-                    selection="cyclic",
-                    tol=1e-4,
-                ),
-            ),
-        ]
-    )
-
-
-def spline_interval(x: np.ndarray, y: np.ndarray) -> pd.DataFrame:
-    """Fit the formal trend and a 200-row-resample percentile interval."""
-    grid = np.linspace(float(x.min()), float(x.max()), 200)
-    rng = np.random.default_rng(EVOLUTION_SEED)
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", ConvergenceWarning)
-        fitted = spline_model().fit(x[:, None], y).predict(grid[:, None])
-        resample = np.empty((EVOLUTION_RESAMPLES, len(grid)))
-        for index in range(EVOLUTION_RESAMPLES):
-            sample = rng.integers(0, len(x), len(x))
-            resample[index] = spline_model().fit(x[sample, None], y[sample]).predict(grid[:, None])
-    lower, upper = np.percentile(resample, (2.5, 97.5), axis=0)
-    return pd.DataFrame({"x": grid, "fitted": fitted, "lower": lower, "upper": upper})
-
-
-def render_evolution_panel(
-    source: pd.DataFrame, metric: str, xlabel: str, filename: str, output_dir: Path
-) -> list[Path]:
-    """Render one of the three formal coefficient/relationship panels."""
-    x = source[metric].to_numpy(float)
-    y = source["coefficient"].to_numpy(float)
-    trend = spline_interval(x, y)
-    point_color, line_color, shade_color = EVOLUTION_STYLE[metric]
-    configure_style()
-    figure, axis = plt.subplots(figsize=(PANEL_WIDTH_MM / 25.4, PANEL_HEIGHT_MM / 25.4))
-    axis.scatter(x, y, color=point_color, alpha=0.68, edgecolors="none", s=8.0, zorder=2)
-    axis.plot(trend["x"], trend["fitted"], color=line_color, linewidth=1.0, zorder=3)
-    axis.fill_between(
-        trend["x"],
-        trend["lower"],
-        trend["upper"],
-        facecolor=shade_color,
-        alpha=0.72,
-        linewidth=0,
-        zorder=1,
-    )
-    axis.text(
-        0.02,
-        0.98,
-        f"Pearson r = {np.corrcoef(x, y)[0, 1]:.3f}",
-        transform=axis.transAxes,
-        ha="left",
-        va="top",
-        fontsize=9.0,
-        bbox={
-            "boxstyle": "round,pad=0.3",
-            "facecolor": "white",
-            "alpha": 0.85,
-            "edgecolor": "none",
-        },
-    )
-    axis.set_xlabel(xlabel)
-    axis.set_ylabel("Model Coefficient")
-    axis.set_ylim(bottom=-0.02 * float(np.ptp(y)))
-    axis.grid(False)
-    figure.subplots_adjust(left=0.18, right=0.96, bottom=0.20, top=0.95)
-    output_dir.mkdir(parents=True, exist_ok=True)
-    stem = output_dir / filename
-    outputs = [stem.with_suffix(".pdf"), stem.with_suffix(".svg")]
-    for output in outputs:
-        figure.savefig(output, dpi=300)
-    plt.close(figure)
-    trend.to_csv(output_dir / f"{filename}_trend.tsv", sep="\t", index=False)
-    return outputs
-
-
-def plot_evolution_panels() -> list[Path]:
-    """Generate all three cross-species panels when all ten species are ready."""
-    coefficients = collect_evolution_coefficients()
-    if coefficients is None:
-        return []
-    source = attach_evolution_metadata(coefficients)
-    output_dir = FIGURE_ROOT / "evolution"
-    output_dir.mkdir(parents=True, exist_ok=True)
-    source.to_csv(output_dir / "directed_component_coefficients.tsv", sep="\t", index=False)
-    panels = (
-        (
-            "distance",
-            "Molecular evolutionary distance",
-            "component_en_coef_vs_molecular_evolutionary_distance",
-        ),
-        (
-            "maximum_lifespan_difference_years",
-            "|Maximum lifespan difference| (years)",
-            "component_en_coef_vs_max_lifespan_difference",
-        ),
-        (
-            "gestation_difference_days",
-            "|Gestation time difference| (days)",
-            "component_en_coef_vs_gestation_difference",
-        ),
-    )
-    return [
-        output
-        for metric, xlabel, filename in panels
-        for output in render_evolution_panel(source, metric, xlabel, filename, output_dir)
-    ]
-
 
 def main() -> int:
     if not RESULT_ROOT.is_dir():
@@ -591,7 +336,6 @@ def main() -> int:
     if not dataset_dirs:
         raise FileNotFoundError(f"No completed datasets found under {RESULT_ROOT}")
     outputs = [output for dataset_dir in dataset_dirs for output in plot_dataset(dataset_dir)]
-    outputs.extend(plot_evolution_panels())
     print(*outputs, sep="\n")
     return 0
 

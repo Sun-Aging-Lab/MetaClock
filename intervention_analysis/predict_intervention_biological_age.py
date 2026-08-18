@@ -26,8 +26,6 @@ def load_inputs(
 ) -> tuple[pd.DataFrame, list[str]]:
     """Join sample metadata to the ordered, complete component-clock matrix."""
     features = pd.read_csv(feature_path)["feature"].astype(str).str.lower().tolist()
-    if "dnamfitage" in features:
-        raise ValueError("DNAmFitAge is globally excluded from biological MetaClock inputs.")
     components = pd.read_csv(component_path)
     manifest = pd.read_csv(manifest_path)
     required_manifest = {KEY, "comparison_id", "group", "donor_id"}

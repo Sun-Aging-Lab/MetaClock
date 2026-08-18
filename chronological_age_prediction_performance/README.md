@@ -31,19 +31,19 @@ Edit the two defaults at the top of
 `train_test_architectures.py` to your two paths, then run:
 
 ```bash
-uv run python -m chronological_age_prediction_performance.train_test_architectures
+python -m chronological_age_prediction_performance.train_test_architectures
 ```
 
 Alternatively, pass only the two path arguments:
 
 ```bash
-uv run python -m chronological_age_prediction_performance.train_test_architectures \
+python -m chronological_age_prediction_performance.train_test_architectures \
   --training-dataset /path/to/training.csv \
   --test-dataset /path/to/test.csv
 ```
 
 This writes architecture and component MAE--Pearson scatter plots, plus the
-formal dashed-boundary comparison plot, as PDF and editable-text SVG files.
+dashed-boundary comparison plot, as PDF and editable-text SVG files.
 It also writes the corresponding metric CSV files.
 
 ## Run all ablations
@@ -51,13 +51,13 @@ It also writes the corresponding metric CSV files.
 Edit the same two defaults at the top of `train_test_ablation.py`, then run:
 
 ```bash
-uv run python -m chronological_age_prediction_performance.train_test_ablation
+python -m chronological_age_prediction_performance.train_test_ablation
 ```
 
 Or provide only the two path arguments:
 
 ```bash
-uv run python -m chronological_age_prediction_performance.train_test_ablation \
+python -m chronological_age_prediction_performance.train_test_ablation \
   --training-dataset /path/to/training.csv \
   --test-dataset /path/to/test.csv
 ```

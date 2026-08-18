@@ -9,7 +9,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from ..config import ENRICHMENT, EXCLUDED_MODELS
+from ..config import ENRICHMENT
 from ..provenance import file_record, sha256, write_json
 
 DEFAULT_CHRONO_RANKING = Path("results/enrichment/rankings/chrono_cpg_weights.csv.gz")
@@ -36,7 +36,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def validate_ranking_provenance(path: Path, ranking_path: Path, model: str) -> None:
-    """Bind an exact component manifest and SHA-256 audit to one ranking file."""
+    """Bind a component manifest and SHA-256 audit to one ranking file."""
     import json
 
     audit = json.loads(path.read_text(encoding="utf-8"))
@@ -44,9 +44,7 @@ def validate_ranking_provenance(path: Path, ranking_path: Path, model: str) -> N
         "chronological_affine_components" if model == "chrono" else "biological_affine_components"
     )
     if audit.get("included_components") != ENRICHMENT[expected_key]:
-        raise ValueError(f"{model} ranking components do not exactly match the analysis manifest.")
-    if set(audit.get("globally_excluded_models", [])) != set(EXCLUDED_MODELS):
-        raise ValueError(f"{model} ranking does not enforce global model exclusions.")
+        raise ValueError(f"{model} ranking components do not match the analysis manifest.")
     if audit.get("outputs", {}).get("ranking", {}).get("sha256") != sha256(ranking_path):
         raise ValueError(f"{model} ranking SHA-256 does not match its provenance audit.")
 
@@ -111,7 +109,6 @@ def main() -> int:
         "union_cpgs": len(union),
         "foreground_450k_restriction": False,
         "top_n_per_direction": TOP_N,
-        "excluded_component": "dnamfitage",
         "models": {},
     }
     paths = {"chrono": args.chrono_ranking, "bio": args.bio_ranking}
