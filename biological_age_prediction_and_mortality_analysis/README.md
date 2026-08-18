@@ -15,7 +15,7 @@ all PDF/SVG plots are written under
 
 Input: one sample per row with `ID`, `sampleID`, `age_years`,
 `clinical_phenoage`, `clinical_phenoage_complete_case`, and CpG beta columns
-named `cg...`.  The 17 canonical component columns may be supplied; otherwise
+  named `cg...`.  The 17 component columns may be supplied; otherwise
 the script computes them with PyAging.  It applies the complete-case flag,
 keeps every sample from a participant in the same outer fold, runs five-fold
 OOF BioMeta/direct-CpG training, draws MAE/Pearson bars, and refits both
@@ -44,8 +44,8 @@ CpG columns; optional `dataset` and `disease` columns control heatmap labels.
 Run script 1 first.  This entry point loads its complete BioMeta and direct-CpG
 baseline artifacts, calls the PyAging API for the 17 BioMeta components and
 DNAmPhenoAge, performs within-dataset age correction and Welch tests, and draws
-the three-model heatmap.  The large baseline artifact is generated locally and
-is not replaced by partial or invented weights in this repository.
+the three-model heatmap. The large baseline artifact is generated locally by
+script 1.
 
 ```bash
 python -m biological_age_prediction_and_mortality_analysis.run_external_disease_analysis
@@ -56,7 +56,7 @@ python -m biological_age_prediction_and_mortality_analysis.run_external_disease_
 Input: the script-1 columns plus `survival_time_years`, `event`, and
 `sex_male`.  The script selects one baseline sample per participant, assigns
 participant-level age-stratified folds, trains both predictors in five folds,
-fits the three pooled-OOF Cox specifications on raw covariates with the formal
+fits the three pooled-OOF Cox specifications on raw covariates with a
 `1e-6` penalizer, converts prediction coefficients to population-SD units for
 display, and draws the forest plot.
 

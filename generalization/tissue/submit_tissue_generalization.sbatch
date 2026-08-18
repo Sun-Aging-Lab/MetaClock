@@ -17,4 +17,4 @@ cd "${REPOSITORY_ROOT}"
 # ElasticNetCV sees the four allocated CPUs through n_jobs=-1.
 export OMP_NUM_THREADS="${SLURM_CPUS_PER_TASK}"
 export MKL_NUM_THREADS="${SLURM_CPUS_PER_TASK}"
-uv run python -m generalization.tissue.train_tissue_generalization
+python -m generalization.tissue.train_tissue_generalization

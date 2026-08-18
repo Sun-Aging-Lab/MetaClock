@@ -9,7 +9,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from ..config import ENRICHMENT, EXCLUDED_MODELS
+from ..config import ENRICHMENT
 from ..provenance import file_record, software_versions, write_json
 
 DEFAULT_META_WEIGHTS = Path("/path/to/your/file")  # fill in your path
@@ -19,7 +19,7 @@ DEFAULT_OUTPUT = Path("results/enrichment/rankings")
 
 
 def expected_components(model: str) -> tuple[str, ...]:
-    """Return the exact affine components allowed to contribute CpG weights."""
+    """Return the affine components allowed to contribute CpG weights."""
     key = "chronological_affine_components" if model == "chrono" else "biological_affine_components"
     return tuple(ENRICHMENT[key])
 
@@ -42,9 +42,7 @@ def build_ranking(
     weights = meta_weights[meta_weights["model"].eq(model)].copy()
     clocks = weights["clock"].astype(str).tolist()
     if clocks != list(expected) or weights["clock"].duplicated().any():
-        raise ValueError(f"{model} meta weights do not exactly match the manifest component order.")
-    if EXCLUDED_MODELS.intersection(clocks):
-        raise ValueError("A globally excluded model appears in meta weights.")
+        raise ValueError(f"{model} meta weights do not match the manifest component order.")
     audit_rows = audit[audit["clock"].isin(expected)].set_index("clock")
     if set(audit_rows.index) != set(expected) or not audit_rows["fixed_affine"].astype(bool).all():
         raise ValueError("Every contributing component must have a unique fixed-affine audit row.")
@@ -111,7 +109,6 @@ def main() -> int:
             "model": args.model,
             "coefficient_scale": "raw input scale; affine intercepts do not affect CpG ranking",
             "included_components": list(expected_components(args.model)),
-            "globally_excluded_models": sorted(EXCLUDED_MODELS),
             "ranking_rows": len(ranking),
             "inputs": {name: file_record(path) for name, path in inputs.items()},
             "outputs": {

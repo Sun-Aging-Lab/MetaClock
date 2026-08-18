@@ -26,17 +26,13 @@ DEFAULT_TRAINING_TABLE = Path("/path/to/your/file")  # fill in your path
 DEFAULT_FEATURE_TABLE = Path("/path/to/your/file")  # fill in your path
 DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "results/intervention/model"
 TARGET = "clinical_phenoage"
-EXCLUDED_FEATURES = {"dnamfitage"}
 
 
 def load_features(path: Path) -> list[str]:
-    """Load the ordered component-clock manifest and enforce global exclusions."""
+    """Load the ordered component-clock manifest."""
     features = pd.read_csv(path)["feature"].astype(str).str.lower().tolist()
     if not features or len(features) != len(set(features)):
         raise ValueError("Feature manifest must contain unique feature names.")
-    forbidden = sorted(set(features).intersection(EXCLUDED_FEATURES))
-    if forbidden:
-        raise ValueError(f"Excluded biological clocks are present: {forbidden}")
     return features
 
 
@@ -76,7 +72,6 @@ def main() -> int:
     summary = {
         "n_samples": int(len(target)),
         "n_features": len(features),
-        "excluded_features": sorted(EXCLUDED_FEATURES),
         "pipeline": (
             "Pipeline(StandardScaler, ElasticNetCV) + fresh "
             "Pipeline(StandardScaler, ElasticNet) selected-alpha refit"

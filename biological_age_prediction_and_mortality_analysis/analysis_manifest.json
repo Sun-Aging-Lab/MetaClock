@@ -125,6 +125,5 @@
       "systemsagemusculoskeletal"
     ],
     "biological_non_affine_components": ["systemsage", "dunedinpace"]
-  },
-  "globally_excluded_models": ["dnamfitage"]
+  }
 }

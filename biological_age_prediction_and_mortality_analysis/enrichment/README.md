@@ -1,25 +1,23 @@
 # CpG-weight enrichment workflow
 
-This subworkflow builds the current top/bottom-1,000 GREAT analysis from
+This subworkflow builds the top/bottom-1,000 GREAT analysis from
 normalized MetaClock/component coefficient inputs. It does not
 contain intervention or volcano analyses.
 
 `top_bottom_1000_cpg_weights.csv` is the compact publication table for the
 selected foregrounds. Its 4,000 rows record `group` (`chronological` or
-`biological`), `direction`, deterministic `rank`, CpG identifier, and the exact
+`biological`), `direction`, deterministic `rank`, CpG identifier, and the
 aggregate weight used for selection. Each group/direction contains exactly
 1,000 unique CpGs.
 
 ## Fixed scientific definition
 
 - The chronological manifest records all 16 candidate clocks. Eight pass the
-  strict fixed-affine end-to-end audit and therefore enter the CpG ranking; the
+  fixed-affine end-to-end audit and therefore enter the CpG ranking; the
   other eight remain documented but cannot be assigned fixed CpG coefficients.
 - The biological manifest records 19 candidates. `systemsage` and
   `dunedinpace` are non-affine and cannot yield a fixed CpG coefficient;
-  therefore the CpG ranking uses the remaining exact 17 affine components.
-- `dnamfitage` is globally excluded from candidates, contributions, rankings,
-  foregrounds, results, and plot text.
+  therefore the CpG ranking uses the remaining 17 affine components.
 - Each CpG contribution is the raw-scale MetaClock coefficient multiplied by
   the raw fixed-affine component CpG coefficient, summed over components.
   Intercepts do not affect this ranking.
@@ -33,11 +31,10 @@ aggregate weight used for selection. Each group/direction contains exactly
 
 ## Normalized coefficient interface
 
-Raw PyAging/component artifact discovery is environment-specific and is not
-invented here. `build_component_weight_rankings.py` starts at this strict,
-portable interface:
+Raw PyAging/component artifact discovery is environment-specific.
+`build_component_weight_rankings.py` starts from this portable interface:
 
-- `meta_component_weights.csv`: `model`, `clock`, `coefficient`; exact manifest
+- `meta_component_weights.csv`: `model`, `clock`, `coefficient`; manifest
   order for the selected model.
 - `component_cpg_coefficients.csv.gz`: `clock`, `cpg`, `coefficient`; unique
   clock/CpG rows on the raw input scale.
