@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Select the top and bottom 1,000 weighted CpGs within the array union."""
+"""Build GREAT foregrounds from the published top/bottom-1,000 CpG table."""
 
 from __future__ import annotations
 
@@ -10,43 +10,24 @@ import numpy as np
 import pandas as pd
 
 from ..config import ENRICHMENT
-from ..provenance import file_record, sha256, write_json
+from ..provenance import file_record, write_json
 
-DEFAULT_CHRONO_RANKING = Path("results/enrichment/rankings/chrono_cpg_weights.csv.gz")
-DEFAULT_BIO_RANKING = Path("results/enrichment/rankings/bio_cpg_weights.csv.gz")
-DEFAULT_CHRONO_AUDIT = Path("results/enrichment/rankings/chrono_ranking_summary.json")
-DEFAULT_BIO_AUDIT = Path("results/enrichment/rankings/bio_ranking_summary.json")
+DEFAULT_SELECTIONS = Path(__file__).with_name("top_bottom_1000_cpg_weights.csv")
 DEFAULT_MEMBERSHIP = Path("results/enrichment/array_union/platform_membership.csv.gz")
 DEFAULT_OUTPUT = Path("results/enrichment/inputs")
 
 
 TOP_N = int(ENRICHMENT["top_n"])
+GROUP_BY_MODEL = {"chrono": "chronological", "bio": "biological"}
 
 
 def parse_args() -> argparse.Namespace:
-    """Parse ranking, universe, provenance, and output paths."""
+    """Parse published selections, union membership, and output paths."""
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--chrono-ranking", type=Path, default=DEFAULT_CHRONO_RANKING)
-    parser.add_argument("--bio-ranking", type=Path, default=DEFAULT_BIO_RANKING)
-    parser.add_argument("--chrono-audit", type=Path, default=DEFAULT_CHRONO_AUDIT)
-    parser.add_argument("--bio-audit", type=Path, default=DEFAULT_BIO_AUDIT)
+    parser.add_argument("--selected-cpgs", type=Path, default=DEFAULT_SELECTIONS)
     parser.add_argument("--membership", type=Path, default=DEFAULT_MEMBERSHIP)
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT)
     return parser.parse_args()
-
-
-def validate_ranking_provenance(path: Path, ranking_path: Path, model: str) -> None:
-    """Bind a component manifest and SHA-256 audit to one ranking file."""
-    import json
-
-    audit = json.loads(path.read_text(encoding="utf-8"))
-    expected_key = (
-        "chronological_affine_components" if model == "chrono" else "biological_affine_components"
-    )
-    if audit.get("included_components") != ENRICHMENT[expected_key]:
-        raise ValueError(f"{model} ranking components do not match the analysis manifest.")
-    if audit.get("outputs", {}).get("ranking", {}).get("sha256") != sha256(ranking_path):
-        raise ValueError(f"{model} ranking SHA-256 does not match its provenance audit.")
 
 
 def write_bed(table: pd.DataFrame, path: Path) -> None:
@@ -57,28 +38,37 @@ def write_bed(table: pd.DataFrame, path: Path) -> None:
 
 
 def select_foregrounds(
-    ranking_path: Path,
+    published: pd.DataFrame,
+    group: str,
     union: pd.DataFrame,
     output_dir: Path,
     top_n: int = TOP_N,
 ) -> dict[str, object]:
-    """Select deterministic extremes after filtering a full ranking to the union."""
-    ranking = pd.read_csv(ranking_path, usecols=["cpg", "weight"])
-    ranking["cpg"] = ranking["cpg"].astype(str).str.strip()
-    ranking["weight"] = pd.to_numeric(ranking["weight"], errors="raise")
-    if ranking["cpg"].duplicated().any() or not np.isfinite(ranking["weight"]).all():
-        raise ValueError(f"Invalid ranking: {ranking_path}")
+    """Validate and write one model's published top and bottom foregrounds."""
+    model_rows = published[published["group"].eq(group)].copy()
     lookup = union.set_index("cpg", verify_integrity=True)
-    eligible = ranking[ranking["cpg"].isin(lookup.index)].copy()
     selections = {
-        "top": eligible.sort_values(["weight", "cpg"], ascending=[False, True]).head(top_n),
-        "bottom": eligible.sort_values(["weight", "cpg"], ascending=[True, True]).head(top_n),
+        direction: model_rows[model_rows["direction"].eq(direction)].sort_values("rank")
+        for direction in ("top", "bottom")
     }
-    if any(len(selected) != top_n for selected in selections.values()):
-        raise ValueError(f"Ranking has fewer than {2 * top_n:,} union-eligible CpGs.")
+    for direction, selected in selections.items():
+        if len(selected) != top_n or selected["rank"].tolist() != list(range(1, top_n + 1)):
+            raise ValueError(f"{group}/{direction} must contain ranks 1 through {top_n}.")
+        if selected["cpg"].duplicated().any():
+            raise ValueError(f"{group}/{direction} contains duplicate CpGs.")
+        monotonic = (
+            selected["weight"].is_monotonic_decreasing
+            if direction == "top"
+            else selected["weight"].is_monotonic_increasing
+        )
+        if not monotonic:
+            raise ValueError(f"{group}/{direction} weights do not follow rank order.")
+        missing = set(selected["cpg"]).difference(lookup.index)
+        if missing:
+            raise ValueError(f"{group}/{direction} contains {len(missing)} CpGs outside the union.")
     if set(selections["top"]["cpg"]).intersection(selections["bottom"]["cpg"]):
         raise ValueError("Top and bottom foregrounds overlap.")
-    audit: dict[str, object] = {"ranking_rows": len(ranking), "union_eligible_rows": len(eligible)}
+    audit: dict[str, object] = {"published_rows": len(model_rows)}
     output_dir.mkdir(parents=True, exist_ok=True)
     for direction, selected in selections.items():
         selected = selected.join(lookup, on="cpg", validate="one_to_one")
@@ -97,10 +87,24 @@ def select_foregrounds(
 
 
 def main() -> int:
-    """Validate provenance and create all four GREAT foregrounds."""
+    """Validate the publication table and create all four GREAT foregrounds."""
     args = parse_args()
-    validate_ranking_provenance(args.chrono_audit, args.chrono_ranking, "chrono")
-    validate_ranking_provenance(args.bio_audit, args.bio_ranking, "bio")
+    published = pd.read_csv(args.selected_cpgs)
+    required = {"group", "direction", "rank", "cpg", "weight"}
+    if missing := required.difference(published.columns):
+        raise KeyError(f"Published CpG table is missing columns: {sorted(missing)}")
+    published = published[list(required)].copy()
+    published["cpg"] = published["cpg"].astype(str).str.strip()
+    published["rank"] = pd.to_numeric(published["rank"], errors="raise")
+    published["weight"] = pd.to_numeric(published["weight"], errors="raise")
+    if not np.isfinite(published[["rank", "weight"]]).all().all():
+        raise ValueError("Published ranks and weights must be finite.")
+    if not published["rank"].eq(np.floor(published["rank"])).all():
+        raise ValueError("Published ranks must be integers.")
+    published["rank"] = published["rank"].astype(int)
+    expected_groups = set(GROUP_BY_MODEL.values())
+    if set(published["group"]) != expected_groups or set(published["direction"]) != {"top", "bottom"}:
+        raise ValueError("Published table must contain chronological/biological top/bottom groups.")
     union = pd.read_csv(args.membership)
     if len(union) != 896_980 or union["cpg"].duplicated().any():
         raise ValueError("Expected the 896,980-CpG 27K/450K/EPIC union.")
@@ -109,12 +113,13 @@ def main() -> int:
         "union_cpgs": len(union),
         "foreground_450k_restriction": False,
         "top_n_per_direction": TOP_N,
+        "published_selections": file_record(args.selected_cpgs),
         "models": {},
     }
-    paths = {"chrono": args.chrono_ranking, "bio": args.bio_ranking}
     for model in ENRICHMENT["models"]:
-        audits["models"][model] = select_foregrounds(paths[model], union, args.output_dir / model)
-        audits["models"][model]["ranking"] = file_record(paths[model])
+        audits["models"][model] = select_foregrounds(
+            published, GROUP_BY_MODEL[model], union, args.output_dir / model
+        )
     args.output_dir.mkdir(parents=True, exist_ok=True)
     write_json(args.output_dir / "foreground_selection_audit.json", audits)
     return 0

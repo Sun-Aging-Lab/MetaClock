@@ -1,0 +1,16 @@
+{
+  "age_corrected_comparisons": 52,
+  "age_corrected_runner_comparisons": 68,
+  "age_corrected_runner_gses": 44,
+  "age_corrected_runner_sample_rows": 7219,
+  "formal_results_source": "/orcd/pool/007/edsun_shared/yncheng/meta_clock_bio/rejuvenation_dnam/geo_biometaclock_analysis/no_age_centering_20260815/combined_age_corrected_and_paired_no_age/one_representative_per_intervention/exclude_GSE276988_GSE330869_GSE168628_GSE130028/results_after_dataset_exclusion.csv",
+  "manifest_scope": "all eligible comparison/sample context within each of the 64 final GSEs; final output is filtered to the frozen 77 comparison IDs after prediction and testing",
+  "matrix_total_expected_bytes": 30793620077,
+  "model_path": "/orcd/pool/007/edsun_shared/yncheng/meta_clock_bio/rejuvenation_dnam/models/participant_level/external_all672_without_dnamfitage/bio_metaclock.joblib",
+  "n_gse": 64,
+  "n_interventions": 77,
+  "paired_no_age_comparisons": 25,
+  "paired_no_age_runner_comparisons": 62,
+  "paired_no_age_runner_gses": 20,
+  "paired_no_age_runner_sample_rows": 998
+}

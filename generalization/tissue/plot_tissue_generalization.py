@@ -20,6 +20,7 @@ from matplotlib.axes import Axes
 from matplotlib.ticker import FormatStrFormatter
 
 from generalization.fonts import register_fonts
+from generalization.modeling import CONFIG_ID
 
 matplotlib.use("Agg", force=True)
 
@@ -29,7 +30,7 @@ MODEL_NAMES = ("EN", "Meta EN", "SVM", "Meta SVM", "Mean")
 N_TRAINING_SIZES = 30
 N_RESAMPLES = 50
 MINIMUM_PLOT_SIZE = 10
-EXPECTED_CONFIG_ID = "generalization-v2-split105-30x50-without-replacement-scaled-encv5-scaled-svr"
+EXPECTED_CONFIG_ID = CONFIG_ID
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 RESULT_ROOT = PROJECT_ROOT / "results" / "generalization" / "tissue"
 FIGURE_ROOT = PROJECT_ROOT / "figures" / "generalization" / "tissue"

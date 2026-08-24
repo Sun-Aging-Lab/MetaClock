@@ -5,7 +5,7 @@ prediction, cross-domain generalization, biological-age and disease analysis,
 functional enrichment, and intervention analysis. Raw methylation matrices and
 cohort metadata are not bundled. Every external dataset input
 uses the explicit placeholder
-`Path("/path/to/your/file")  # fill in your path`.
+`Path("data/your_file")  # fill in your path`.
 
 ## Project overview
 
@@ -46,4 +46,3 @@ Python dependency versions are pinned in `pyproject.toml` and fully resolved in
 `rtracklayer`, `AnnotationDbi`, `org.Hs.eg.db`, and the 27K v1.2, 450K v1.2,
 and EPIC v1.0 B4 hg19 annotation packages documented in the enrichment README;
 R dependencies are therefore recorded separately from the Python lockfile.
-

@@ -3,8 +3,8 @@
 
 Edit only ``DATASET_PATH``.  The combined InCHIANTI table must include the
 biological-age columns/CpGs and ``INTV_MOR``: wave 0 is alive/censored and
-waves 4, 5, and 6 are deaths.  One deterministic baseline DNAm sample is used
-per participant before the formal age-bin fold assignment.
+waves 4, 5, and 6 are deaths. One deterministic baseline DNAm sample is used
+per participant and mapped to the fixed formal Figure 4 OOF assignment.
 """
 
 from __future__ import annotations
@@ -25,12 +25,31 @@ from sklearn.model_selection import KFold
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
-from .config import EXTERNAL_COMPONENTS
+from .config import (
+    INCHIANTI_OOF_FOLD_ASSIGNMENT_PATH,
+    INCHIANTI_PARTICIPANTS,
+    OOF_COMPONENTS,
+)
+from .data import (
+    complete_case_mask as parse_complete_case_mask,
+)
+from .data import (
+    dnam_feature_columns,
+    fixed_figure4_oof_folds,
+    numeric_matrix,
+    read_analysis_dataset,
+)
 from .plotting import LABELS, clean_axis, configure_style, save_vector_pair
+from .provenance import software_versions
 
 # --- Paths: this is the only user-edited input ---
 
-DATASET_PATH = Path("/path/to/your/file")  # fill in your path
+DATASET_PATH = (
+    Path(__file__).resolve().parent
+    / "outputs"
+    / "preprocessing"
+    / "inchianti_analysis_ready.parquet"
+)
 OUTPUT_DIR = Path(__file__).resolve().parent / "outputs" / "kaplan_meier"
 PYAGING_CACHE_DIR = Path(__file__).resolve().parent / "pyaging_data"
 
@@ -51,7 +70,9 @@ TRAINED_MODELS = ("bio_metaclock", "baseline")
 MODEL_ORDER = (*TRAINED_MODELS, "clinical_phenoage")
 GROUP_ORDER = ("bottom_20", "top_20")
 GROUP_COLORS = {"bottom_20": "#4C78A8", "top_20": "#E45756"}
-REQUIRED_COLUMNS = {"ID", "sampleID", "age_years", TARGET, COMPLETE_CASE, "INTV_MOR"}
+REQUIRED_COLUMNS = {
+    "ID", "sampleID", "age_years", TARGET, COMPLETE_CASE, "INTV_MOR", "sex_male"
+}
 
 
 # --- Complete cases, deterministic baseline sample, and vital-status endpoint ---
@@ -59,18 +80,12 @@ REQUIRED_COLUMNS = {"ID", "sampleID", "age_years", TARGET, COMPLETE_CASE, "INTV_
 
 def read_dataset(path: Path) -> pd.DataFrame:
     """Read one analysis-ready CSV/CSV.GZ or Parquet cohort."""
-    if not path.exists():
-        raise FileNotFoundError(f"Set DATASET_PATH to the combined InCHIANTI cohort: {path}")
-    return pd.read_parquet(path) if path.suffix.lower() == ".parquet" else pd.read_csv(path)
+    return read_analysis_dataset(path)
 
 
 def complete_case_mask(values: pd.Series) -> pd.Series:
     """Parse the clinical PhenoAge complete-case flag."""
-    if pd.api.types.is_bool_dtype(values):
-        return values.fillna(False)
-    numeric = pd.to_numeric(values, errors="coerce")
-    text = values.astype("string").str.strip().str.lower()
-    return numeric.eq(1) | text.isin({"true", "t", "yes", "y"})
+    return parse_complete_case_mask(values)
 
 
 def prepare_cohort(frame: pd.DataFrame) -> pd.DataFrame:
@@ -80,7 +95,7 @@ def prepare_cohort(frame: pd.DataFrame) -> pd.DataFrame:
     cohort = frame.loc[complete_case_mask(frame[COMPLETE_CASE])].copy()
     cohort["ID"] = cohort["ID"].astype(str)
     cohort["sampleID"] = cohort["sampleID"].astype(str)
-    for column in ("age_years", TARGET, "INTV_MOR"):
+    for column in ("age_years", TARGET, "INTV_MOR", "sex_male"):
         cohort[column] = pd.to_numeric(cohort[column], errors="coerce")
     cohort = cohort.dropna(subset=["ID", "sampleID", "age_years", TARGET, "INTV_MOR"])
     suffix = pd.to_numeric(cohort["sampleID"].str.extract(r"(\d+)$", expand=False), errors="coerce")
@@ -105,11 +120,8 @@ def prepare_cohort(frame: pd.DataFrame) -> pd.DataFrame:
 
 
 def cpg_columns(frame: pd.DataFrame) -> list[str]:
-    """Return CpG beta columns in file order."""
-    columns = [str(column) for column in frame.columns if str(column).lower().startswith("cg")]
-    if not columns:
-        raise ValueError("No CpG beta columns named cg... were found.")
-    return columns
+    """Return all 485,577 formal baseline features in file order."""
+    return dnam_feature_columns(frame)
 
 
 # --- KM-specific 10-year age-bin outer folds ---
@@ -126,6 +138,19 @@ def assign_km_folds(cohort: pd.DataFrame, seed: int = SEED) -> tuple[np.ndarray,
         rng.shuffle(positions)
         labels = np.arange(len(positions), dtype=int) % N_FOLDS
         folds[positions] = labels
+    summary = summarize_km_folds(cohort, folds)
+    return folds, summary
+
+
+def summarize_km_folds(cohort: pd.DataFrame, folds: np.ndarray) -> pd.DataFrame:
+    """Validate and summarize an explicit participant-level KM fold assignment."""
+    folds = np.asarray(folds, dtype=int)
+    if len(folds) != len(cohort) or set(folds) != set(range(N_FOLDS)):
+        raise ValueError("KM OOF folds must cover every cohort row with labels 0 through 4.")
+    if cohort.assign(fold=folds).groupby("ID")["fold"].nunique().max() != 1:
+        raise ValueError("KM OOF fold assignment splits samples from the same donor.")
+    table = cohort[["ID", "age_years", "km_event"]].copy()
+    table["age_bin"] = (table["age_years"] // AGE_BIN_YEARS * AGE_BIN_YEARS).astype(int)
     summary = (
         table.assign(fold=folds + 1)
         .groupby(["fold", "age_bin"], as_index=False)
@@ -135,37 +160,40 @@ def assign_km_folds(cohort: pd.DataFrame, seed: int = SEED) -> tuple[np.ndarray,
         subset = table[folds == fold]
         if subset.empty or subset["km_event"].nunique() != 2:
             raise ValueError(f"KM fold {fold + 1} must contain deaths and censored controls.")
-    return folds, summary
+    return summary
 
 
 # --- PyAging components ---
 
 
 def component_predictions(cohort: pd.DataFrame, cpgs: list[str]) -> pd.DataFrame:
-    """Reuse component columns or infer all 17 canonical BioMeta inputs with PyAging."""
-    if set(EXTERNAL_COMPONENTS).issubset(cohort.columns):
-        return cohort[["sampleID", *EXTERNAL_COMPONENTS]].copy()
+    """Reuse component columns or infer all 19 formal OOF BioMeta inputs."""
+    if set(OOF_COMPONENTS).issubset(cohort.columns):
+        return cohort[["sampleID", *OOF_COMPONENTS]].copy()
     try:
         import anndata as ad
         import pyaging as pya
     except ImportError as exc:
         raise RuntimeError("Install anndata and pyaging to compute BioMeta inputs.") from exc
-    matrix = cohort[cpgs].apply(pd.to_numeric, errors="coerce").fillna(0.0).to_numpy(np.float32)
+    matrix = numeric_matrix(cohort, cpgs)
     adata = ad.AnnData(matrix)
     adata.var_names = cpgs
     adata.obs = cohort[["sampleID", "age_years"]].copy().set_index("sampleID", drop=False)
     adata.obs["age"] = adata.obs["age_years"]
     adata.obs["Age"] = adata.obs["age_years"]
+    female = 1.0 - cohort["sex_male"].to_numpy(float)
+    adata.obs["female"] = female
+    adata.obs["Female"] = female
     PYAGING_CACHE_DIR.mkdir(parents=True, exist_ok=True)
     pya.pred.predict_age(
         adata,
-        list(EXTERNAL_COMPONENTS),
+        list(OOF_COMPONENTS),
         dir=str(PYAGING_CACHE_DIR),
         batch_size=512,
         clean=True,
         verbose=False,
     )
-    output = adata.obs[["sampleID", *EXTERNAL_COMPONENTS]].reset_index(drop=True)
+    output = adata.obs[["sampleID", *OOF_COMPONENTS]].reset_index(drop=True)
     del adata, matrix
     gc.collect()
     return output
@@ -198,9 +226,15 @@ def fit_km_prediction_model(x: np.ndarray, y: np.ndarray, seed: int) -> Pipeline
 def train_oof_predictions(
     cohort: pd.DataFrame,
     designs: dict[str, np.ndarray],
+    *,
+    folds: np.ndarray | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Train both biological-age predictors in all outer folds and add Clinical PhenoAge."""
-    folds, diagnostics = assign_km_folds(cohort)
+    if folds is None:
+        folds, diagnostics = assign_km_folds(cohort)
+    else:
+        folds = np.asarray(folds, dtype=int)
+        diagnostics = summarize_km_folds(cohort, folds)
     y = cohort[TARGET].to_numpy(float)
     outputs: list[pd.DataFrame] = []
     model_dir = OUTPUT_DIR / "fold_models"
@@ -298,6 +332,7 @@ def fit_km_curves(assignments: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame
             curve["ci_upper"] = confidence.iloc[:, 1].to_numpy(float)
             curve.insert(0, "bioage_group", group)
             curve.insert(0, "model", model)
+            curve.insert(0, "grouping", "age_corrected")
             curve["n_group"] = len(data)
             curve["n_events_group"] = int(data["km_event"].sum())
             curves.append(curve)
@@ -308,18 +343,55 @@ def fit_km_curves(assignments: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame
             event_observed_A=low["km_event"],
             event_observed_B=high["km_event"],
         )
+        observed_top, expected_top, variance = logrank_supporting_statistics(low, high)
         tests.append(
             {
+                "grouping": "age_corrected",
                 "model": model,
                 "bottom_20_n": len(low),
                 "bottom_20_events": int(low["km_event"].sum()),
                 "top_20_n": len(high),
                 "top_20_events": int(high["km_event"].sum()),
+                "observed_top_events": observed_top,
+                "expected_top_events": expected_top,
+                "logrank_variance": variance,
                 "logrank_chi2": float(result.test_statistic),
                 "logrank_p_value": float(result.p_value),
             }
         )
     return pd.concat(curves, ignore_index=True), pd.DataFrame(tests)
+
+
+def logrank_supporting_statistics(
+    low: pd.DataFrame, high: pd.DataFrame
+) -> tuple[float, float, float]:
+    """Return O/E/variance fields that lifelines omits from its result object."""
+    time = pd.concat([low["km_time"], high["km_time"]], ignore_index=True).to_numpy(float)
+    event = pd.concat([low["km_event"], high["km_event"]], ignore_index=True).to_numpy(bool)
+    top = np.concatenate(
+        [np.zeros(len(low), dtype=bool), np.ones(len(high), dtype=bool)]
+    )
+    observed_top = 0.0
+    expected_top = 0.0
+    variance = 0.0
+    for event_time in np.sort(np.unique(time[event])):
+        at_risk = time >= event_time
+        events_at_time = event & (time == event_time)
+        n_total = int(at_risk.sum())
+        d_total = int(events_at_time.sum())
+        if n_total <= 1 or d_total == 0:
+            continue
+        n_top = int((at_risk & top).sum())
+        observed_top += float((events_at_time & top).sum())
+        expected_top += float(d_total * n_top / n_total)
+        variance += float(
+            n_top
+            * (n_total - n_top)
+            * d_total
+            * (n_total - d_total)
+            / (n_total * n_total * (n_total - 1))
+        )
+    return observed_top, expected_top, variance
 
 
 # --- KM panel ---
@@ -366,17 +438,20 @@ def plot_km(curves: pd.DataFrame, tests: pd.DataFrame) -> None:
 def main() -> int:
     """Prepare FU4-6 endpoint, train OOF predictors, age-correct, and plot KM."""
     cohort = prepare_cohort(read_dataset(DATASET_PATH))
+    if len(cohort) != INCHIANTI_PARTICIPANTS:
+        raise ValueError(
+            f"Figure 4 Kaplan-Meier requires {INCHIANTI_PARTICIPANTS} participants."
+        )
     cpgs = cpg_columns(cohort)
     components = component_predictions(cohort, cpgs).set_index("sampleID")
     designs = {
-        "bio_metaclock": components.loc[cohort["sampleID"], list(EXTERNAL_COMPONENTS)].to_numpy(
-            float
+        "bio_metaclock": numeric_matrix(
+            components.loc[cohort["sampleID"]], OOF_COMPONENTS, dtype=np.float64
         ),
-        "baseline": (
-            cohort[cpgs].apply(pd.to_numeric, errors="coerce").fillna(0.0).to_numpy(np.float32)
-        ),
+        "baseline": numeric_matrix(cohort, cpgs),
     }
-    predictions, diagnostics = train_oof_predictions(cohort, designs)
+    folds = fixed_figure4_oof_folds(cohort)
+    predictions, diagnostics = train_oof_predictions(cohort, designs, folds=folds)
     corrected, age_fits = age_correct_predictions(predictions)
     assignments = tail_groups(corrected)
     curves, tests = fit_km_curves(assignments)
@@ -391,13 +466,22 @@ def main() -> int:
         json.dumps(
             {
                 "endpoint": "INTV_MOR: 0 alive/censored; death waves 4, 5, 6",
-                "outer_folds": "participant-level randomized round-robin within 10-year age bins",
+                "outer_folds": "fixed formal Figure 4 donor-level OOF assignment",
+                "oof_fold_assignment": {
+                    "path": str(INCHIANTI_OOF_FOLD_ASSIGNMENT_PATH.resolve()),
+                    "assignment_labels_internal": list(range(N_FOLDS)),
+                    "output_fold_labels": list(range(1, N_FOLDS + 1)),
+                },
                 "prediction_model": (
                     "StandardScaler + ElasticNetCV; max_iter=10000; no second refit"
                 ),
                 "age_correction": "pooled OOF linear residual within model",
                 "tails": "deterministic bottom/top 20% within model",
                 "models": list(MODEL_ORDER),
+                "bio_metaclock_components": list(OOF_COMPONENTS),
+                "software": software_versions(
+                    ["numpy", "pandas", "scikit-learn", "lifelines", "pyaging", "anndata"]
+                ),
             },
             indent=2,
         )

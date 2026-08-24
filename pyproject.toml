@@ -10,6 +10,7 @@ dependencies = [
     "lightgbm==4.6.0",
     "lifelines==0.30.3",
     "matplotlib==3.10.8",
+    "mrmr-selection==0.2.8",
     "numpy==2.3.5",
     "pandas==2.3.3",
     "pymupdf==1.26.6",
@@ -36,6 +37,7 @@ addopts = "-ra"
 testpaths = [
     "biological_age_prediction_and_mortality_analysis/tests",
     "intervention_analysis/tests",
+    "generalization/tests",
 ]
 
 [tool.ruff]

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import importlib.metadata
 import json
 import platform
@@ -10,19 +9,10 @@ from pathlib import Path
 from typing import Any, Iterable
 
 
-def sha256(path: Path) -> str:
-    """Return the SHA-256 digest of a file without loading it into memory."""
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for block in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
-
-
 def file_record(path: Path) -> dict[str, Any]:
     """Describe one immutable workflow input."""
     resolved = path.resolve(strict=True)
-    return {"path": str(path), "bytes": resolved.stat().st_size, "sha256": sha256(resolved)}
+    return {"path": str(path), "bytes": resolved.stat().st_size}
 
 
 def software_versions(packages: Iterable[str]) -> dict[str, str]:

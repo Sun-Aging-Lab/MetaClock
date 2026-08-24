@@ -1,8 +1,7 @@
 # CpG-weight enrichment workflow
 
-This subworkflow builds the top/bottom-1,000 GREAT analysis from
-normalized MetaClock/component coefficient inputs. It does not
-contain intervention or volcano analyses.
+This subworkflow runs the top/bottom-1,000 GREAT analysis from the published
+CpG selection table. It does not contain intervention or volcano analyses.
 
 `top_bottom_1000_cpg_weights.csv` is the compact publication table for the
 selected foregrounds. Its 4,000 rows record `group` (`chronological` or
@@ -29,31 +28,23 @@ aggregate weight used for selection. Each group/direction contains exactly
   1 Mb extension, `exclude=NULL`, gene-set size >=5, and
   `min_region_hits=5`. BH adjustment is within model/direction/library.
 
-## Normalized coefficient interface
+## Published foreground interface
 
-Raw PyAging/component artifact discovery is environment-specific.
-`build_component_weight_rankings.py` starts from this portable interface:
-
-- `meta_component_weights.csv`: `model`, `clock`, `coefficient`; manifest
-  order for the selected model.
-- `component_cpg_coefficients.csv.gz`: `clock`, `cpg`, `coefficient`; unique
-  clock/CpG rows on the raw input scale.
-- `component_model_audit.csv`: `clock`, `fixed_affine`, `artifact_sha256`;
-  unique component records with a valid 64-character SHA-256 digest.
-
-The ranking summary binds every input and generated ranking/contribution table
-to SHA-256 hashes. Foreground selection verifies this summary before proceeding.
+`select_top_bottom_cpg_foregrounds.py` reads
+`top_bottom_1000_cpg_weights.csv` directly. It validates the four published
+model/direction groups, joins their CpG identifiers to the array-union hg19
+coordinates, and writes the BED foregrounds used by rGREAT. Component-level
+coefficient files and full-ranking audit files are not required.
 
 ## Array and mapping audits
 
 `build_27k_450k_epic_union_background.R` uses pinned maintained Bioconductor
 annotation packages. The 27K v1.2 annotation is lifted from hg18 to hg19 with a
-user-supplied UCSC chain through `rtracklayer`; the audit records chain SHA-256,
+user-supplied UCSC chain through `rtracklayer`; the audit records the chain path,
 source/mapped/unmapped counts, and coordinate concordance with probes shared by
 450K before and after lifting. The 450K v1.2 and EPIC v1.0 B4 annotations are
 already hg19. The workflow rejects post-lift cross-platform conflicts and
-duplicate union coordinates, and hashes the manifest, membership, and BED
-output.
+duplicate union coordinates.
 
 For KEGG, Reactome, and Hallmark, `AnnotationDbi::select` with `org.Hs.eg.db`
 maps SYMBOL to ENTREZID. Mappings are deduplicated per `(term, entrez_id)` before
@@ -69,8 +60,6 @@ From the project root:
 ```bash
 Rscript biological_age_prediction_and_mortality_analysis/enrichment/build_27k_450k_epic_union_background.R results/enrichment/array_union
 
-python -m biological_age_prediction_and_mortality_analysis.enrichment.build_component_weight_rankings chrono
-python -m biological_age_prediction_and_mortality_analysis.enrichment.build_component_weight_rankings bio
 python -m biological_age_prediction_and_mortality_analysis.enrichment.select_top_bottom_cpg_foregrounds
 
 for library in go_bp kegg_2021_human reactome_pathways_2024 msigdb_hallmark_2020; do
@@ -85,7 +74,7 @@ python -m biological_age_prediction_and_mortality_analysis.enrichment.plot_top_b
 The eight semantic vector stems follow
 `enrichment_{chronological|biological}_{library}_top_bottom_1000`.
 
-KEGG, Reactome, and Hallmark are version-pinned GMT snapshots in the configured external
-gene-set directory. Record their own source/version checksums alongside the input
+KEGG, Reactome, and Hallmark are version-pinned GMT snapshots in the configured
+external gene-set directory. Record their source and version alongside the input
 data. The R environment requires rGREAT 2.8.0 and the package versions pinned in
 the array annotation audit.

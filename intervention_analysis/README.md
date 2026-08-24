@@ -1,78 +1,58 @@
-# Intervention analysis
+# GEO intervention analysis: frozen 77-comparison workflow
 
-This directory contains the compact, reproducible workflow used to train the
-biological MetaClock, predict intervention samples, estimate donor-level
-effects, apply the curated one-intervention/one-comparison rule, and draw the
-FDR volcano plot.
+This directory contains the two entry points for the formal analysis universe of
+77 intervention comparisons from 64 GEO series. The later smoking-filtered,
+POST-UV sensitivity, and minimum-P analyses are not inputs to this workflow.
 
-## Scripts
+## Main scripts
 
-- `train_intervention_biometaclock.py`: fits the two-stage intervention model
-  using
-  `Pipeline(StandardScaler, ElasticNetCV)` with the scaler outside the five
-  shuffled folds, searches 30 alphas from `1` to `1e-5`, uses the default
-  `l1_ratio=0.5`, records (but does not reject) CV convergence warnings, and
-  performs a fresh all-participant `Pipeline(StandardScaler, ElasticNet)`
-  refit at the selected alpha. Refit warnings and reaching `100000` iterations
-  are fatal.
-- `predict_intervention_biological_age.py`: applies the trained model to an
-  ordered component-prediction table.
-- `summarize_intervention_effects.py`: performs one chronological-age fit per
-  GEO dataset/correction stratum, collapses repeated samples to donor means,
-  and uses a paired t-test for paired donor sets (including the shared-donor
-  subset of partial pairs) or Welch's t-test for fully unpaired sets. The
-  workflow requires at least four donors per arm; comparisons without
-  chronological age must be fully paired.
-- `biometaclock_modeling.py`: five-fold alpha selection, warning
-  auditing, and the checked all-participant Elastic Net refit.
-- `select_curated_intervention_results.py`: applies the audited representative
-  selection, excludes the four datasets used by the intervention
-  analysis (`GSE276988`, `GSE330869`, `GSE168628`, `GSE130028`), and recomputes
-  Benjamini-Hochberg FDR across that final family. The exclusion list can be
-  overridden with repeated `--exclude-gse-id` arguments.
-- `plot_intervention_fdr_volcano.py`: generates the 110 × 60 mm PDF/SVG
-  volcano with FDR 5% and 20% categories. It registers the bundled Liberation
-  Sans assets, uses 0.2 pt outline styling, and applies the five-label
-  annotation map and offsets used by the figure.
+1. `/orcd/pool/007/edsun_shared/yncheng/metaclock/intervention_analysis/fetch_geo_datasets_and_metadata.py`
 
-## Input layout
+   Fetches GEO metadata and the exact 64 DNAm matrix artifacts listed in the
+   frozen acquisition manifest. Existing complete files are reused and file
+   sizes are validated. The expected matrix download is 30,793,620,077 bytes
+   (28.679 GiB).
 
-Every original dataset/feature-table input defaults to
-`Path("/path/to/your/file")  # fill in your path`; replace it or pass a
-command-line path before running. Workflow outputs remain under `results/`.
+   ```bash
+   conda run --no-capture-output -n metaclock python \
+     /orcd/pool/007/edsun_shared/yncheng/metaclock/intervention_analysis/fetch_geo_datasets_and_metadata.py \
+     --output-dir /orcd/pool/007/edsun_shared/yncheng/meta_clock_bio/rejuvenation_dnam/geo_intervention_fetch_77
+   ```
 
-```text
-datasets/intervention/
-├── training_component_predictions.csv
-├── biometaclock_features.csv
-├── component_predictions.csv
-├── sample_manifest.csv
-├── intervention_selection_audit.csv
-└── volcano_annotations.csv
-```
+   Add `--dry-run` to validate and print the acquisition plan without network
+   access or output writes.
 
-The training table contains `clinical_phenoage` plus the component columns in
-`biometaclock_features.csv`. The sample manifest requires `sample_id`,
-`comparison_id`, `gse_id`, `comparison_name`, `group`, and `donor_id`; optional
-`chronological_age` and `correction_stratum` columns control age adjustment.
-The annotation table requires `comparison_id,short_label,dx,dy,ha,va`.
-Within each `comparison_id`, `gse_id` and `comparison_name` must be constant.
-If a sample occurs in more than one comparison, its `predicted_age`, optional
-`chronological_age`, and `correction_stratum` must agree before de-duplication.
-The selection audit's `selected` column accepts only explicit Boolean values
-(`true` or `false`); ambiguous spreadsheet values are rejected.
+2. `/orcd/pool/007/edsun_shared/yncheng/metaclock/intervention_analysis/run_biometaclock_intervention_analysis.py`
 
-## Example
+   Loads the frozen BioMetaClock weights, predicts every retained GSE with its
+   complete frozen branch context, performs the design-aware two-sided paired or
+   Welch t-test, applies Benjamini-Hochberg correction across the 77 retained
+   comparisons, cross-checks BH with SciPy, and creates PDF/SVG FDR volcano
+   plots.
 
-```bash
-python -m intervention_analysis.train_intervention_biometaclock
-python -m intervention_analysis.predict_intervention_biological_age
-python -m intervention_analysis.summarize_intervention_effects
-python -m intervention_analysis.select_curated_intervention_results
-python -m intervention_analysis.plot_intervention_fdr_volcano
-```
+   ```bash
+   conda run --no-capture-output -n metaclock python \
+     /orcd/pool/007/edsun_shared/yncheng/metaclock/intervention_analysis/run_biometaclock_intervention_analysis.py \
+     --matrix-root /orcd/pool/007/edsun_shared/yncheng/meta_clock_bio/rejuvenation_dnam/geo_intervention_fetch_77/matrices \
+     --output-dir /orcd/pool/007/edsun_shared/yncheng/meta_clock_bio/rejuvenation_dnam/geo_intervention_analysis_77_reproduction
+   ```
 
-Raw methylation parsing and component-clock inference are intentionally kept
-upstream: this workflow starts from a component-prediction matrix that passes
-the required schema and finite-value checks so that the statistical and
-plotting logic remains small.
+The established GEO readers, PyAging inference, test implementation, and
+volcano implementation remain in
+`/orcd/pool/007/edsun_shared/yncheng/meta_clock_bio/rejuvenation_dnam` and are
+selected with `--pipeline-root`. The default frozen model is
+`/orcd/pool/007/edsun_shared/yncheng/meta_clock_bio/rejuvenation_dnam/models/participant_level/external_all672_without_dnamfitage/bio_metaclock.joblib`.
+Strict original beta-distribution QC remains enabled.
+
+## Frozen configuration
+
+`/orcd/pool/007/edsun_shared/yncheng/metaclock/intervention_analysis/config`
+contains the 77-result anchor, 64-GSE acquisition manifest, age-corrected and
+paired-no-age sample/matrix manifests, selection audit, and source lineage.
+These are immutable analysis inputs. Each analysis execution should use a new
+output directory.
+
+The run summaries record Python, NumPy, pandas, SciPy, statsmodels, and
+Matplotlib versions plus the key runtime parameters. Benjamini-Hochberg uses
+`statsmodels.stats.multitest.multipletests(method="fdr_bh")` and is validated
+against `scipy.stats.false_discovery_control(method="bh")`.

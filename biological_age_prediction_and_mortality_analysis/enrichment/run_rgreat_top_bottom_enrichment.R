@@ -18,7 +18,7 @@ if (!identical(as.character(utils::packageVersion("rGREAT")), config$rGREAT_vers
 
 default_input_dir <- "results/enrichment/inputs"
 default_background <- "results/enrichment/array_union/background_27k_450k_epic_union_hg19.bed.gz"
-default_gene_sets <- "/path/to/your/file" # fill in your path
+default_gene_sets <- "data/enrichment/gene_sets.rds"
 default_output_dir <- "results/enrichment/rgreat"
 args <- commandArgs(trailingOnly = TRUE)
 if (length(args) < 2L) {

@@ -50,6 +50,7 @@ slurm-*.out
 # Local-only development tests (not required to reproduce figures)
 /chronological_age_prediction_performance/tests/
 /generalization/tests/
+/chronological_age_prediction_performance/tests/
 /biological_age_prediction_and_mortality_analysis/tests/
 /intervention_analysis/tests/
 
