@@ -12,6 +12,8 @@ import numpy as np
 import pandas as pd
 from sklearn.metrics import mean_absolute_error
 
+from repository_paths import relative_path
+
 from .train_test_architectures import (
     COMPONENT_CLOCKS,
     DEFAULT_TRAINING_DATASET,
@@ -88,7 +90,7 @@ def export_weights(
         "prediction_formula": "raw_intercept + X @ raw_coefficient",
         "training_mae": float(mean_absolute_error(y, pipeline_prediction)),
         "raw_formula_max_abs_prediction_delta": max_abs_prediction_delta,
-        "training_input": str(training_path.resolve()),
+        "training_input": relative_path(training_path),
         "software": {
             "python": platform.python_version(),
             "numpy": importlib.metadata.version("numpy"),

@@ -13,6 +13,8 @@ import matplotlib.pyplot as plt
 import pandas as pd
 from scipy.stats import pearsonr
 
+from repository_paths import relative_path
+
 from .config import INCHIANTI_DUPLICATE_PAIRS
 from .data import complete_case_mask, read_analysis_dataset
 from .plotting import COLORS, LABELS, clean_axis, configure_style, save_vector_pair
@@ -152,7 +154,7 @@ def main() -> int:
     (OUTPUT_DIR / "run_summary.json").write_text(
         json.dumps(
             {
-                "prediction_source": str(PREDICTIONS_PATH.resolve()),
+                "prediction_source": relative_path(PREDICTIONS_PATH),
                 "complete_case_filter": COMPLETE_CASE,
                 "pair_rule": "exactly two complete-case DNAm samples per participant",
                 "held_out_model_rule": "same participant-grouped OOF model as panel 1",

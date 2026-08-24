@@ -29,6 +29,8 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 from sklearn.svm import SVR
 
+from repository_paths import ensure_repo_path, relative_path
+
 from .species_config import (
     DISPLAY_NAMES,
     POOLED_COMPONENT,
@@ -455,7 +457,7 @@ def selected_size_index() -> int:
 
 def main() -> int:
     name = os.environ.get("TARGET_SPECIES", SPECIES[0])
-    path = direct_input_path(name).expanduser().resolve()
+    path = ensure_repo_path(direct_input_path(name))
     direct, meta, evolution, name, title = load_model_inputs(name)
     direct_train, direct_test, meta_train, meta_test = split_and_impute(direct, meta)
     sizes = training_sizes(len(direct_train))
@@ -466,7 +468,10 @@ def main() -> int:
     if output.is_file() and provenance_path.is_file():
         provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
         validate_result(pd.read_parquet(output), size, size_index)
-        if provenance.get("input_path") != str(path) or provenance.get("config_id") != CONFIG_ID:
+        if (
+            provenance.get("input_path") != relative_path(path)
+            or provenance.get("config_id") != CONFIG_ID
+        ):
             raise ValueError(f"Existing shard has a different input or configuration: {output}")
         if size_index == 0:
             write_evolution_coefficients(
@@ -483,7 +488,7 @@ def main() -> int:
             "config_id": CONFIG_ID,
             "dataset": name,
             "title": title,
-            "input_path": str(path),
+            "input_path": relative_path(path),
             "size_index": size_index,
             "training_size": size,
             "training_sizes": sizes.tolist(),

@@ -22,7 +22,8 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 from sklearn.svm import SVR
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
+from repository_paths import ensure_repo_path, relative_path
+
 TARGET = "age"
 MODEL_NAMES = ("EN", "Meta EN", "SVM", "Meta SVM", "Mean")
 CONFIG_ID = "generalization-v4-geo-reproduction-split105-30x50-scaled-encv5-linear-svr"
@@ -79,7 +80,7 @@ class DatasetSpec:
 
 
 def project_path(path: Path) -> Path:
-    return path if path.is_absolute() else PROJECT_ROOT / path
+    return ensure_repo_path(path)
 
 
 def config_record(config: GeneralizationConfig) -> dict[str, Any]:
@@ -310,8 +311,8 @@ def evaluate_training_size(
         validate_result(existing, size, size_index, config)
         cache_matches = (
             provenance.get("config") == config_record(config)
-            and provenance.get("direct_input") == str(direct_path.resolve())
-            and provenance.get("meta_input") == str(meta_path.resolve())
+            and provenance.get("direct_input") == relative_path(direct_path)
+            and provenance.get("meta_input") == relative_path(meta_path)
         )
         if not cache_matches:
             raise ValueError(
@@ -355,9 +356,9 @@ def evaluate_training_size(
         "domain": spec.domain,
         "title": spec.title,
         "created_utc": datetime.now(timezone.utc).isoformat(),
-        "input_path": str(direct_path.resolve()),
-        "direct_input": str(direct_path.resolve()),
-        "meta_input": str(meta_path.resolve()),
+        "input_path": relative_path(direct_path),
+        "direct_input": relative_path(direct_path),
+        "meta_input": relative_path(meta_path),
         "training_pool_samples": len(direct_train),
         "test_samples": len(direct_test),
         "direct_features": direct_train.shape[1] - 1,

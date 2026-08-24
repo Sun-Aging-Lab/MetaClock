@@ -35,7 +35,7 @@
     "GSE69270",
     "GSE73103"
   ],
-  "training_input": "/orcd/pool/007/edsun_shared/yncheng/metaclock/chronological_age_prediction_performance/training_component_clock_predictions.csv",
+  "training_input": "chronological_age_prediction_performance/training_component_clock_predictions.csv",
   "training_mae": 1.2238696049769469,
   "training_samples": 3353
 }

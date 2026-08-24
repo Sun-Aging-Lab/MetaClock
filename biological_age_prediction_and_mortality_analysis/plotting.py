@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-import os
-import tempfile
 from pathlib import Path
 
-os.environ.setdefault("MPLCONFIGDIR", str(Path(tempfile.gettempdir()) / "metaclock-mpl"))
+from repository_matplotlib import MPLCONFIGDIR
+from repository_paths import PROJECT_ROOT
 
 import matplotlib
 
@@ -15,7 +14,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 from matplotlib import font_manager
 
-FONT_DIR = Path(__file__).resolve().parents[1] / "generalization" / "assets" / "fonts"
+FONT_DIR = PROJECT_ROOT / "generalization" / "assets" / "fonts"
 FONT_FILES = (
     "LiberationSans-Regular.ttf",
     "LiberationSans-Italic.ttf",
@@ -39,6 +38,7 @@ COLORS = {
 
 def configure_style() -> None:
     """Require Liberation Sans and apply the formal manuscript typography."""
+    MPLCONFIGDIR.mkdir(parents=True, exist_ok=True)
     paths = [FONT_DIR / name for name in FONT_FILES]
     missing = [path for path in paths if not path.is_file()]
     if missing:

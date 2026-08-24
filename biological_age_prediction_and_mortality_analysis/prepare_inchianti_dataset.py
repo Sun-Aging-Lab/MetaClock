@@ -12,6 +12,8 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from repository_paths import relative_path
+
 from .config import (
     DNAM_FEATURE_PREFIX_COUNTS,
     DNAM_FEATURE_PREFIXES,
@@ -329,11 +331,11 @@ def main() -> None:
     n_dnam_features = write_dataset(OUTPUT_PATH, metadata, beta, cpg_names, sample_positions)
     summary = {
         "inputs": {
-            "dnam_rdata": str(DNAM_RDATA_PATH.resolve()),
-            "lab_sas": str(LAB_SAS_PATH.resolve()),
-            "vital_sas": str(VITAL_SAS_PATH.resolve()),
+            "dnam_rdata": relative_path(DNAM_RDATA_PATH),
+            "lab_sas": relative_path(LAB_SAS_PATH),
+            "vital_sas": relative_path(VITAL_SAS_PATH),
         },
-        "output": str(OUTPUT_PATH.resolve()),
+        "output": relative_path(OUTPUT_PATH),
         "rdata_objects": ["b.baseline", "pheno.baseline"],
         "n_samples": len(metadata),
         "n_participants": int(metadata["ID"].nunique()),

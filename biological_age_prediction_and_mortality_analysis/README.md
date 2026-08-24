@@ -58,11 +58,11 @@ python -m biological_age_prediction_and_mortality_analysis.run_duplicate_sample_
 
 Input: one external DNAm dataset with `sampleID`, `age`, `disease_state`, and
 CpG columns; optional `dataset` and `disease` columns control heatmap labels.
-Run script 1 first.  This entry point loads its complete BioMeta and direct-CpG
-baseline artifacts, calls the PyAging API for the 17 BioMeta components and
+This entry point loads the tracked biological MetaClock weights from
+`model_weights/`, calls the PyAging API for the 17 BioMeta components and
 DNAmPhenoAge, performs within-dataset age correction and Welch tests, and draws
-the three-model heatmap. The large baseline artifact is generated locally by
-script 1.
+the three-model heatmap. Run script 1 first only to generate the large
+direct-CpG baseline artifact locally.
 
 ```bash
 python -m biological_age_prediction_and_mortality_analysis.run_external_disease_analysis
