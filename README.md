@@ -32,13 +32,10 @@ uv sync --frozen
 
 ## MetaClock Python package
 
-The repository also provides the importable `metaclock` package. The standard
-locked environment includes scikit-learn, pyaging, and LightGBM. From the
-repository root, the existing environment command installs the package in
-editable mode together with all runtime dependencies:
+The repository also provides the importable `metaclock` package
 
-```bash
-uv sync --frozen
+```
+python -m pip install -e /orcd/pool/007/edsun_shared/yncheng/metaclock/
 ```
 
 ### Input contract
@@ -60,7 +57,7 @@ Pass any ordered list of pyaging component-model names. The fitted result is an
 sklearn-compatible pipeline whose `predict()` method first runs the same
 components in the same order and then applies the trained meta-regressor:
 
-```python
+```
 import metaclock
 
 component_model_list = [
@@ -110,15 +107,3 @@ loaded_model = joblib.load(model_output_path)
 predicted_age = loaded_model.predict(test_adata)
 ```
 
-The package delegates component loading, feature alignment, preprocessing,
-inference, and postprocessing to pyaging. Regression, scaling, and
-cross-validation use maintained scikit-learn or LightGBM implementations.
-Non-finite targets or component outputs raise explicit errors rather than
-being silently imputed.
-
-The implementation was validated with Python 3.11.14, pyaging 0.1.30,
-anndata 0.12.7, numpy 2.3.5, pandas 2.3.3, scikit-learn 1.8.0, and LightGBM
-4.6.0. In the InCHIANTI Illumina 450K integration check, all selected component
-outputs matched the existing pyaging reference with a maximum absolute error
-of 1.42e-13. A donor-grouped 18-sample holdout produced MAE 1.86 years, RMSE
-2.13 years, R2 0.975, and Pearson r 0.989.
