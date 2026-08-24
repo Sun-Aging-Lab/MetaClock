@@ -1,7 +1,6 @@
 # Biological-age prediction and mortality analysis
 
-The directory has five analysis entry points.  For each entry point, edit the
-single line
+The directory has five analysis entry points.  For each entry point, edit
 
 ```python
 DATASET_PATH = Path(__file__).resolve().parent / "outputs" / "preprocessing" / "inchianti_analysis_ready.parquet"
@@ -28,11 +27,6 @@ duplicate, Cox, and Kaplan-Meier entry points all read this file directly.
 Component-clock predictions are not stored by the producer; each analysis
 entry point calls PyAging when those columns are absent.
 
-The table retains all 485,577 `b.baseline` rows in their original RData order:
-482,421 `cg*`, 3,091 `ch.*`/`ch.X.*`, and 65 `rs*` features. The direct baseline
-does not use a pre-training feature-selection filter; sparsity is introduced
-only by Elastic Net fitting.
-
 ## 1. Biological-age prediction
 
 Input: one sample per row with `ID`, `sampleID`, `age_years`,
@@ -54,8 +48,7 @@ python -m biological_age_prediction_and_mortality_analysis.run_biological_age_pr
 
 Run script 1 first. This entry point reuses its participant-grouped OOF
 predictions, selects participants with exactly two complete-case DNAm samples,
-and summarizes the 44 BioMeta and direct-baseline replicate pairs. It does not
-fit a separate singleton-only model.
+and summarizes the 44 BioMeta and direct-baseline replicate pairs.
 
 ```bash
 python -m biological_age_prediction_and_mortality_analysis.run_duplicate_sample_reliability
@@ -79,13 +72,13 @@ python -m biological_age_prediction_and_mortality_analysis.run_external_disease_
 
 Input: the script-1 columns plus `survival_time_years`, `event`, and
 `sex_male`.  The script selects one baseline sample per participant, assigns
-the fixed Figure 4 donor folds, trains the 19-component BioMeta and the
+the fixed Figure donor folds, trains the 19-component BioMeta and the
 full 485,577-feature direct baseline in five folds,
-uses the exact Figure 4 panel-1 OOF ElasticNetCV configuration, and fits the
+uses Figure 4 panel-1 OOF ElasticNetCV configuration, and fits the
 three pooled-OOF Cox specifications after z-scoring every included covariate
 with population SD (`ddof=0`). Cox models use `CoxPHFitter(alpha=0.05,
 baseline_estimation_method="breslow", penalizer=0.0)` with `robust=False` and
-`show_progress=False`. Its donor folds are read from the same fixed Figure 4
+`show_progress=False`. Its donor folds are read from the same fixed Figure
 assignment used by the biological-age panel.
 
 ```bash
