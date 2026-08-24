@@ -1,9 +1,3 @@
-# Generalization workflows
-
-Array and tissue reproduction now start from the five public GEO accessions;
-species retains its separate leave-one-species-out workflow. Human datasets
-use three cached preparation stages, followed by parallel train/test shards and
-plotting.
 
 ## Human input contract
 
@@ -25,14 +19,9 @@ preparation script writes two aligned sample-indexed files:
   PyAging predictions plus `age`.
 
 The direct features reproduce the mutual-information 10,000 then mRMR 1,000
-selection. PyAging 0.1.30 runs once per dataset and caches model weights; the 30
-training tasks consume the cached prediction file instead of racing or doing
-the same 16 predictions 30 times. Provenance records source URLs, cohort
-definitions, package versions, parameters, and missingness.
+selection. PyAging 0.1.30 runs once per dataset and caches model weights
 
 ## Array: download, PyAging, prepare, train/test
-
-With no `--gse`, each of the first three commands processes both array datasets:
 
 ```bash
 python -m generalization.array.download_geo
@@ -60,8 +49,6 @@ python -m generalization.array.GSE184221_methylchip40 --size-index 0
 ```
 
 ## Tissue: download, PyAging, prepare, train/test
-
-With no `--gse`, each preparation command processes all three tissue datasets:
 
 ```bash
 python -m generalization.tissue.download_geo
@@ -99,12 +86,10 @@ difference column.
 Fetch the normalized beta matrix and series metadata from NCBI GEO, then
 prepare the target and pooled inputs, train the saved submodels, build
 target-specific LOO features, and run all ten species across the 30 sample
-sizes. The beta download is approximately 4.2 GB; the fetcher supports
-resuming a partial download and does not download the raw IDAT archive:
+sizes. The fetcher supports resuming a partial download and does not download the raw IDAT archive.
 
 The target transformation rounds every gestation value to three decimal
-places before calculating relative age, matching the retained recovery
-inputs.
+places before calculating relative age.
 
 ```bash
 python -m generalization.species.fetch_gse223748
@@ -118,9 +103,7 @@ python -m generalization.species.plot_species_evolution
 ```
 
 Submit these jobs in order, using Slurm `afterok` dependencies when they are
-queued together. `PapioHamadryas` uses exact GSE223748 `Papio hamadryas`
-samples; `papio_anubis` is only the Ensembl proxy recorded in the evolutionary
-distance table.
+queued together.
 
 The ENCV submodels generate the nine cross-species features for each target.
 The size-zero species task then fits the fixed positive Elastic Net directed
@@ -130,10 +113,6 @@ reads the resulting ten coefficient tables and the three pairwise CSV tables.
 
 ## Fixed scientific configuration and outputs
 
-All three training scripts use a fixed 80/20 split (seed 105), 30 unique
-integer log-space training sizes from 10 through `training_pool - 10`, and 50
-without-replacement resamples per size.  Each resample fits five rows:
-EN, Meta EN, SVM, Meta SVM, and the training-mean baseline.
 
 EN/Meta EN use `StandardScaler` followed by scikit-learn `ElasticNetCV` with
 five folds, 30 alphas from 1 to 1e-5, `l1_ratio=0.5`, `max_iter=20000`,
@@ -148,15 +127,7 @@ mean/2.5th/97.5th percentile summary, and four PDF/SVG layouts per dataset:
 - starting at training size 10, with and without the Mean baseline;
 - starting at the shared above-Mean cutoff, with and without the Mean baseline.
 
-For EN and SVM separately, the family threshold is the first size at or above
-10 where both the direct and corresponding Meta model have mean MAE below the
-mean-prediction baseline.  The plotted above-Mean start shared by both subplots
-is the maximum of those two family thresholds.  Training shards are written
+Training shards are written
 under `results/generalization/`; figures are written under
 `figures/generalization/`.
 
-The three evolution panels use fixed-alpha definitions: directed
-weights use `StandardScaler` plus non-negative
-`ElasticNet(alpha=0.001, l1_ratio=0.5, max_iter=1000)`, and each cubic-spline
-trend uses the same fixed-alpha Elastic Net with a 200-row bootstrap interval
-with replacement (seed 42).
