@@ -6,12 +6,6 @@ functional enrichment, and intervention analysis. Every external dataset input
 uses the explicit placeholder
 `Path("data/your_file")  # fill in your path`.
 
-Run workflows from the repository root. File and directory arguments are
-repository-relative; formal entry points reject absolute paths and paths that
-escape the repository. Downloaded data, model caches, generated results, and
-plotting caches remain under `data/`, `results/`, or other documented
-repository-relative directories.
-
 ## Project overview
 
 MetaClock is an integrated framework that combines
