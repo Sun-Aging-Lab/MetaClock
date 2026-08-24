@@ -4,22 +4,47 @@ The directory has five analysis entry points.  For each entry point, edit the
 single line
 
 ```python
-DATASET_PATH = Path("/path/to/your/file")  # fill in your path
+DATASET_PATH = Path(__file__).resolve().parent / "outputs" / "preprocessing" / "inchianti_analysis_ready.parquet"
 ```
 
 and run the script from the project root.  Output tables, fitted artifacts, and
 all PDF/SVG plots are written under
 `biological_age_prediction_and_mortality_analysis/outputs/`.
 
+## Prepare the shared InCHIANTI dataset
+
+The raw inputs are three separate files: the DNAm RData containing
+b.baseline and pheno.baseline, the baseline laboratory SAS table, and the
+Vital Status SAS table. Set DNAM_RDATA_PATH, LAB_SAS_PATH, and VITAL_SAS_PATH
+at the top of prepare_inchianti_dataset.py, then build the table once:
+
+    python -m biological_age_prediction_and_mortality_analysis.prepare_inchianti_dataset
+
+The producer computes Levine Clinical PhenoAge from the baseline laboratory
+measurements, derives Cox and Kaplan-Meier fields from Vital Status, aligns
+participant data by ID, aligns beta values by sampleID, and writes
+outputs/preprocessing/inchianti_analysis_ready.parquet. The biological-age,
+duplicate, Cox, and Kaplan-Meier entry points all read this file directly.
+Component-clock predictions are not stored by the producer; each analysis
+entry point calls PyAging when those columns are absent.
+
+The table retains all 485,577 `b.baseline` rows in their original RData order:
+482,421 `cg*`, 3,091 `ch.*`/`ch.X.*`, and 65 `rs*` features. The direct baseline
+does not use a pre-training feature-selection filter; sparsity is introduced
+only by Elastic Net fitting.
+
 ## 1. Biological-age prediction
 
 Input: one sample per row with `ID`, `sampleID`, `age_years`,
-`clinical_phenoage`, `clinical_phenoage_complete_case`, and CpG beta columns
-  named `cg...`.  The 17 component columns may be supplied; otherwise
-the script computes them with PyAging.  It applies the complete-case flag,
-keeps every sample from a participant in the same outer fold, runs five-fold
-OOF BioMeta/direct-CpG training, draws MAE/Pearson bars, and refits both
-artifacts on one baseline sample per participant for external use.
+`clinical_phenoage`, `clinical_phenoage_complete_case`, and the complete ordered
+485,577-feature DNAm manifest. The script computes the 19-component OOF BioMeta
+after excluding DNAmFitAge. One lowest-suffix DNAm sample per participant enters
+training; every complete-case replicate is predicted by that participant's
+held-out model, and MAE/Pearson are calculated after averaging predictions to
+672 participants. The donor-to-fold mapping is pinned in
+`inchianti_oof_fold_assignment.csv`, validated and mapped by donor ID
+rather than regenerated from input row order. The external full refit separately
+uses the 17 components available across all external datasets.
 
 ```bash
 python -m biological_age_prediction_and_mortality_analysis.run_biological_age_prediction
@@ -27,11 +52,10 @@ python -m biological_age_prediction_and_mortality_analysis.run_biological_age_pr
 
 ## 2. Duplicate-sample reliability
 
-Input: the same row-oriented InCHIANTI dataset.  Every participant with exactly
-two DNAm samples is held out in full.  The direct-CpG baseline and BioMeta are
-trained on all valid participants with exactly one DNAm sample, while
-DNAmPhenoAge is obtained by direct PyAging inference.  All three comparators are
-then summarized as paired prediction differences.
+Run script 1 first. This entry point reuses its participant-grouped OOF
+predictions, selects participants with exactly two complete-case DNAm samples,
+and summarizes the 44 BioMeta and direct-baseline replicate pairs. It does not
+fit a separate singleton-only model.
 
 ```bash
 python -m biological_age_prediction_and_mortality_analysis.run_duplicate_sample_reliability
@@ -55,10 +79,14 @@ python -m biological_age_prediction_and_mortality_analysis.run_external_disease_
 
 Input: the script-1 columns plus `survival_time_years`, `event`, and
 `sex_male`.  The script selects one baseline sample per participant, assigns
-participant-level age-stratified folds, trains both predictors in five folds,
-fits the three pooled-OOF Cox specifications on raw covariates with a
-`1e-6` penalizer, converts prediction coefficients to population-SD units for
-display, and draws the forest plot.
+the fixed Figure 4 donor folds, trains the 19-component BioMeta and the
+full 485,577-feature direct baseline in five folds,
+uses the exact Figure 4 panel-1 OOF ElasticNetCV configuration, and fits the
+three pooled-OOF Cox specifications after z-scoring every included covariate
+with population SD (`ddof=0`). Cox models use `CoxPHFitter(alpha=0.05,
+baseline_estimation_method="breslow", penalizer=0.0)` with `robust=False` and
+`show_progress=False`. Its donor folds are read from the same fixed Figure 4
+assignment used by the biological-age panel.
 
 ```bash
 python -m biological_age_prediction_and_mortality_analysis.run_cox_analysis
@@ -68,9 +96,9 @@ python -m biological_age_prediction_and_mortality_analysis.run_cox_analysis
 
 Input: the script-1 columns plus `INTV_MOR` (`0` for alive/censored; `4`, `5`,
 or `6` for death at that follow-up wave).  The script selects one baseline
-sample per participant, assigns 10-year-age-bin folds, trains both predictors,
-age-corrects pooled OOF scores, and plots bottom/top-20% Kaplan–Meier curves and
-log-rank results.
+sample per participant, reads the fixed Figure 4 donor folds, trains the
+19-component BioMeta and full 485,577-feature baseline, age-corrects pooled OOF scores, and
+plots bottom/top-20% Kaplan–Meier curves and log-rank results.
 
 ```bash
 python -m biological_age_prediction_and_mortality_analysis.run_kaplan_meier_analysis
@@ -82,8 +110,6 @@ The enrichment workflow and fixed GREAT parameters are documented in
 `enrichment/README.md`.  Its Python entry points are:
 
 ```bash
-python -m biological_age_prediction_and_mortality_analysis.enrichment.build_component_weight_rankings chrono
-python -m biological_age_prediction_and_mortality_analysis.enrichment.build_component_weight_rankings bio
 python -m biological_age_prediction_and_mortality_analysis.enrichment.select_top_bottom_cpg_foregrounds
 python -m biological_age_prediction_and_mortality_analysis.enrichment.plot_top_bottom_enrichment
 ```

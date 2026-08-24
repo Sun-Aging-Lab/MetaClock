@@ -12,7 +12,6 @@
   "coefficient_formula": "raw_coefficient = standardized_coefficient / scaler_scale",
   "prediction_formula": "raw_intercept + X @ raw_coefficient",
   "source_artifact": "restricted all-672 fitted artifact; not distributed",
-  "source_artifact_sha256": "1db9b3ba71f6d3458904f7afae05d53f01ea345e316f3ab52c814ef278ef7b9f",
   "source_feature_manifest": "feature order embedded in biometaclock_672_participants_weights.csv",
   "training_software": {
     "scikit-learn": "1.8.0",

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import os
 import tempfile
 from pathlib import Path
@@ -17,18 +16,12 @@ import pandas as pd
 from matplotlib import font_manager
 
 FONT_DIR = Path(__file__).resolve().parents[1] / "generalization" / "assets" / "fonts"
-FONT_HASHES = {
-    "LiberationSans-Regular.ttf": (
-        "76d04c18ea243f426b7de1f3ad208e927008f961dc5945e5aad352d0dfde8ee8"
-    ),
-    "LiberationSans-Italic.ttf": (
-        "e5bae5c4cde31f22142753855f4f8fb86da6ff39955ed3c0a11248b0d16948b0"
-    ),
-    "LiberationSans-Bold.ttf": ("788abee4c806d660e8aee46689dd8540cd4bb98da03dcc9d171ce3efd99a9173"),
-    "LiberationSans-BoldItalic.ttf": (
-        "698da70fc191cc5f33ad4d6d3fe830fe4624b898ea2e3169955928b7c491f1ee"
-    ),
-}
+FONT_FILES = (
+    "LiberationSans-Regular.ttf",
+    "LiberationSans-Italic.ttf",
+    "LiberationSans-Bold.ttf",
+    "LiberationSans-BoldItalic.ttf",
+)
 
 LABELS = {
     "bio_metaclock": "BioMeta",
@@ -46,7 +39,10 @@ COLORS = {
 
 def configure_style() -> None:
     """Require Liberation Sans and apply the formal manuscript typography."""
-    paths = [FONT_DIR / name for name in FONT_HASHES]
+    paths = [FONT_DIR / name for name in FONT_FILES]
+    missing = [path for path in paths if not path.is_file()]
+    if missing:
+        raise FileNotFoundError(f"Missing manuscript fonts: {missing}")
     allowed = {path.resolve() for path in paths}
     font_manager.fontManager.ttflist = [
         entry
@@ -54,8 +50,6 @@ def configure_style() -> None:
         if entry.name != "Liberation Sans" or Path(entry.fname).resolve() in allowed
     ]
     for path in paths:
-        if hashlib.sha256(path.read_bytes()).hexdigest() != FONT_HASHES[path.name]:
-            raise ValueError(f"Unexpected manuscript font: {path}")
         font_manager.fontManager.addfont(path)
     resolved_font = Path(
         font_manager.findfont("Liberation Sans", fallback_to_default=False)

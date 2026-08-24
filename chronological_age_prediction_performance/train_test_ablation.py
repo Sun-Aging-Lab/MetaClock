@@ -1,16 +1,13 @@
 #!/usr/bin/env python3
-"""Run every cumulative component-clock ablation on training and test datasets.
+"""Run every cumulative component-clock ablation on the bundled datasets.
 
-The two input files use the same wide schema as ``train_test_architectures``:
-``dataset``, ``sample_id``, ``age``, and all 16 Figure-2 component-clock
-columns.  Replace only the two path defaults below.  This script refits the
-MetaClock on each reduced component set, evaluates each test dataset, and
-writes all three ablation scatter plots to a fixed results directory.
+The two CSV files use the same wide schema as ``train_test_architectures``.
+This script refits the MetaClock on each reduced component set, evaluates
+each test dataset, and writes all three ablation scatter plots.
 """
 
 from __future__ import annotations
 
-import argparse
 from pathlib import Path
 
 import matplotlib
@@ -43,7 +40,7 @@ from .train_test_architectures import (
 )
 
 # ---------------------------------------------------------------------------
-# User-editable paths and Figure-2 ablation definition
+# Bundled inputs and Figure-2 ablation definition
 # ---------------------------------------------------------------------------
 DEFAULT_ABLATION_TRAINING_DATASET = DEFAULT_TRAINING_DATASET
 DEFAULT_ABLATION_TEST_DATASET = DEFAULT_TEST_DATASET
@@ -177,19 +174,12 @@ def plot_step(table: pd.DataFrame, step: int) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Single two-path CLI: all three fits, tests, tables, and plots
+# All three fits, tests, tables, and plots
 # ---------------------------------------------------------------------------
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--training-dataset", type=Path, default=DEFAULT_ABLATION_TRAINING_DATASET)
-    parser.add_argument("--test-dataset", type=Path, default=DEFAULT_ABLATION_TEST_DATASET)
-    return parser.parse_args()
-
-
 def main() -> None:
-    args = parse_args()
     configure_style()
-    training, test = read_dataset(args.training_dataset), read_dataset(args.test_dataset)
+    training = read_dataset(DEFAULT_ABLATION_TRAINING_DATASET)
+    test = read_dataset(DEFAULT_ABLATION_TEST_DATASET)
     for step in range(1, len(REMOVAL_ORDER) + 1):
         clocks = tuple(clock for clock in COMPONENT_CLOCKS if clock not in REMOVAL_ORDER[:step])
         metrics = heldout_metrics(test, clocks, fit_metaclock(training, clocks), step)

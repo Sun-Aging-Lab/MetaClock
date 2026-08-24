@@ -1,0 +1,41 @@
+{
+  "coefficient_formula": "raw_coefficient = standardized_coefficient / scaler_scale",
+  "estimator": "StandardScaler followed by SVR(kernel='linear')",
+  "feature_count": 16,
+  "features_file_order": "metaclock_chronological_3353_samples_weights.csv",
+  "model": "MetaClock chronological",
+  "prediction_formula": "raw_intercept + X @ raw_coefficient",
+  "raw_formula_max_abs_prediction_delta": 2.639310991980892e-11,
+  "raw_intercept": -2.1539876138998437,
+  "software": {
+    "numpy": "2.3.5",
+    "pandas": "2.3.3",
+    "python": "3.11.14",
+    "scikit-learn": "1.8.0"
+  },
+  "standardized_intercept": 49.80234497538769,
+  "support_vectors": 3083,
+  "svr_parameters": {
+    "C": 1.0,
+    "epsilon": 0.1,
+    "max_iter": -1,
+    "shrinking": true,
+    "tol": 0.001
+  },
+  "target": "chronological age",
+  "training_cohort_count": 9,
+  "training_cohorts": [
+    "GSE40279",
+    "GSE41169",
+    "GSE42861",
+    "GSE51032",
+    "GSE51057",
+    "GSE52588",
+    "GSE64495",
+    "GSE69270",
+    "GSE73103"
+  ],
+  "training_input": "/orcd/pool/007/edsun_shared/yncheng/metaclock/chronological_age_prediction_performance/training_component_clock_predictions.csv",
+  "training_mae": 1.2238696049769469,
+  "training_samples": 3353
+}

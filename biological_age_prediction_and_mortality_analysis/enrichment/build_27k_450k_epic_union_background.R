@@ -3,7 +3,6 @@
 # Build and audit the hg19 CpG universe from maintained Bioconductor annotations.
 suppressPackageStartupMessages({
     library(data.table)
-    library(digest)
     library(GenomicRanges)
     library(GenomeInfoDb)
     library(jsonlite)
@@ -18,7 +17,7 @@ manifest <- jsonlite::read_json(manifest_path, simplifyVector = TRUE)
 config <- manifest$enrichment
 
 default_output <- "results/enrichment/array_union"
-default_chain <- "/path/to/your/file" # fill in your path
+default_chain <- "data/reference/hg19ToHg38.over.chain.gz"
 args <- commandArgs(trailingOnly = TRUE)
 output_dir <- if (length(args) >= 1L) args[[1L]] else default_output
 chain_path <- if (length(args) >= 2L) args[[2L]] else default_chain
@@ -38,8 +37,6 @@ expected_versions <- c(
     IlluminaHumanMethylationEPICanno.ilm10b4.hg19 = "0.6.0"
 )
 canonical_chromosomes <- paste0("chr", c(seq_len(22L), "X", "Y"))
-
-sha256 <- function(path) digest::digest(file = path, algo = "sha256", serialize = FALSE)
 
 load_locations <- function(specification, platform) {
     package <- specification[[1L]]
@@ -147,7 +144,7 @@ fwrite(
     file.path(output_dir, "platform_counts.tsv"), sep = "\t"
 )
 audit <- list(
-    analysis_manifest = list(path = manifest_path, sha256 = sha256(manifest_path)),
+    analysis_manifest = list(path = manifest_path),
     genome = config$genome,
     bed_coordinate_convention = "0-based, half-open [position-1, position)",
     annotation_packages = as.list(expected_versions),
@@ -155,7 +152,6 @@ audit <- list(
     liftover_27k = list(
         status = "applied_hg18_to_hg19",
         chain_path = chain_path,
-        chain_sha256 = sha256(chain_path),
         source_regions = length(ranges_27k_source),
         uniquely_lifted_regions = length(ranges_27k),
         unmapped_regions = sum(lift_counts == 0L),
@@ -172,8 +168,8 @@ audit <- list(
         duplicate_union_coordinates = nrow(coordinate_duplicates)
     ),
     outputs = list(
-        membership = list(path = membership_path, sha256 = sha256(membership_path)),
-        background_bed = list(path = background_path, sha256 = sha256(background_path))
+        membership = list(path = membership_path),
+        background_bed = list(path = background_path)
     )
 )
 jsonlite::write_json(audit, file.path(output_dir, "annotation_audit.json"), auto_unbox = TRUE, pretty = TRUE)

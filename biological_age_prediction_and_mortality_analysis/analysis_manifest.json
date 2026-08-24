@@ -1,6 +1,47 @@
 {
   "schema_version": 1,
   "biological_analysis": {
+    "inchianti_dnam_features": {
+      "total": 485577,
+      "prefix_counts": {"cg": 482421, "ch.": 3091, "rs": 65}
+    },
+    "inchianti_complete_case_samples": 716,
+    "inchianti_participants": 672,
+    "inchianti_duplicate_pairs": 44,
+    "inchianti_cox_events": 313,
+    "oof_fold_assignment": {
+      "path": "inchianti_oof_fold_assignment.csv",
+      "rows": 672,
+      "folds": 5,
+      "id_column": "ID",
+      "fold_column": "fold",
+      "fold_labels": [0, 1, 2, 3, 4],
+      "fold_counts": {"0": 139, "1": 135, "2": 133, "3": 133, "4": 132},
+      "age_bin_years": 10,
+      "seed": 0,
+      "source": "formal Figure 4 participant-level OOF assignment"
+    },
+    "oof_component_features": [
+      "dnamphenoage",
+      "hrsinchphenoage",
+      "grimage",
+      "grimage2",
+      "dnamic",
+      "zhangmortality",
+      "systemsage",
+      "systemsageblood",
+      "systemsagebrain",
+      "systemsageheart",
+      "systemsagehormone",
+      "systemsageimmune",
+      "systemsageinflammation",
+      "systemsagekidney",
+      "systemsageliver",
+      "systemsagelung",
+      "systemsagemetabolic",
+      "systemsagemusculoskeletal",
+      "dunedinpace"
+    ],
     "external_samples": 3325,
     "external_datasets": 15,
     "external_component_features": [

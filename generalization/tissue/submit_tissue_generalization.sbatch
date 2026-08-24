@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=tissue
-#SBATCH --array=0-29
+#SBATCH --array=0-89
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=10G
 #SBATCH --time=24:00:00
@@ -13,8 +13,10 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPOSITORY_ROOT="$(cd -- "${SCRIPT_DIR}/../.." && pwd)"
 cd "${REPOSITORY_ROOT}"
 
-# One Slurm CPU task owns one log-spaced sample size and all 50 resamples.
-# ElasticNetCV sees the four allocated CPUs through n_jobs=-1.
 export OMP_NUM_THREADS="${SLURM_CPUS_PER_TASK}"
 export MKL_NUM_THREADS="${SLURM_CPUS_PER_TASK}"
-python -m generalization.tissue.train_tissue_generalization
+DATASETS=(GSE175458 GSE232891 GSE287331)
+GSE_INDEX=$((SLURM_ARRAY_TASK_ID / 30))
+SIZE_INDEX=$((SLURM_ARRAY_TASK_ID % 30))
+python -m generalization.tissue.train_tissue_generalization \
+  --gse "${DATASETS[${GSE_INDEX}]}" --size-index "${SIZE_INDEX}"

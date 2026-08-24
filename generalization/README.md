@@ -1,37 +1,91 @@
 # Generalization workflows
 
-Array, tissue, and species generalization use the same three-step training and
-generalization-plot workflow: one Python script fits/tests a single sample-size
-point, one Slurm array submits all 30 points in parallel, and one Python script
-aggregates every shard and writes the generalization plots. Species evolution
-panels are rendered separately after all ten species coefficient tables exist.
+Array and tissue reproduction now start from the five public GEO accessions;
+species retains its separate leave-one-species-out workflow. Human datasets
+use three cached preparation stages, followed by parallel train/test shards and
+plotting.
 
-## Input table
+## Human input contract
 
-For the relevant domain, edit the single line below in its training script:
+The beta matrix alone is not sufficient: each sample must also have a unique
+identifier and chronological age. The GEO download adapters obtain and audit
+both. They intentionally use dataset-specific metadata keys and cohort rules
+rather than guessing an age field from arbitrary files.
 
-```python
-DATASET_PATH = Path('/path/to/your/file')  # fill in your path
+| Domain | GEO datasets | Selected healthy adults |
+|---|---|---:|
+| array | GSE184221, GSE234461 | 384, 245 |
+| tissue | GSE175458, GSE232891, GSE287331 | 142, 248, 182 |
+
+Each dataset is normalized below `data/generalization/<domain>/<GSE>/` and the
+preparation script writes two aligned sample-indexed files:
+
+- `prepared/direct_cpg_age.parquet`: 1,000 selected `cg...` beta features plus `age`;
+- `prepared/component_predictions_age.parquet`: the exact 16 chronological
+  PyAging predictions plus `age`.
+
+The direct features reproduce the mutual-information 10,000 then mRMR 1,000
+selection. PyAging 0.1.30 runs once per dataset and caches model weights; the 30
+training tasks consume the cached prediction file instead of racing or doing
+the same 16 predictions 30 times. Provenance records source URLs, cohort
+definitions, package versions, parameters, and missingness.
+
+## Array: download, PyAging, prepare, train/test
+
+With no `--gse`, each of the first three commands processes both array datasets:
+
+```bash
+python -m generalization.array.download_geo
+python -m generalization.array.predict_components
+python -m generalization.array.prepare_training_inputs
+sbatch generalization/array/submit_array_generalization.sbatch
+python -m generalization.array.plot_array_generalization
 ```
 
-The path can be CSV, TSV, or parquet.  It must contain:
+To run one dataset only, pass its accession to every preparation stage and use
+its named Slurm file:
 
-- `age`, with one row per unique sample;
-- direct methylation features named `cg...`;
-- array/tissue: the 16 chronological component predictions declared in the
-  training script;
-- species: exactly ten `*_mlp_elu` predictions (the other nine species
-  models and `alltissueconcat_mlp_elu`); the target species' own component is
-  rejected to prevent leakage.
+```bash
+python -m generalization.array.download_geo --gse GSE184221
+python -m generalization.array.predict_components --gse GSE184221
+python -m generalization.array.prepare_training_inputs --gse GSE184221
+sbatch generalization/array/GSE184221_methylchip40.sbatch
+```
 
-`sample_id`, `dataset`, `species`, and `title` are optional metadata columns.
-If `sample_id` is absent, the existing table index is used.  A species table may
-also contain nine `*_elasticnetcv` columns.  Those columns support the
-evolution analysis, must likewise exclude the target species, and are not mixed
-with the MLP-ELU few-shot Meta models.  The supplied MLP-ELU predictions use the
-specified two-hidden-layer 100/50 architecture with ELU, BatchNorm, dropout 0.5,
-AdamW (`learning_rate=1e-3`, `weight_decay=1e-3`), batch size 32, 300 epochs,
-and seed 105.
+`GSE234461_methylchipepic_v1.sbatch` is the corresponding GSE234461 submission.
+A local point can be checked with:
+
+```bash
+python -m generalization.array.GSE184221_methylchip40 --size-index 0
+```
+
+## Tissue: download, PyAging, prepare, train/test
+
+With no `--gse`, each preparation command processes all three tissue datasets:
+
+```bash
+python -m generalization.tissue.download_geo
+python -m generalization.tissue.predict_components
+python -m generalization.tissue.prepare_training_inputs
+sbatch generalization/tissue/submit_tissue_generalization.sbatch
+python -m generalization.tissue.plot_tissue_generalization
+```
+
+The one-dataset Slurm files are `GSE175458_lung.sbatch`,
+`GSE232891_saliva.sbatch`, and `GSE287331_breast.sbatch`. The three preparation
+commands accept the matching repeatable `--gse` option. `--data-root` and
+`--cache-dir` provide explicit location overrides; run `--help` for force and
+batch-size controls.
+
+## Species input and workflow
+
+For species, saved submodel artifacts generate nine non-self MLP-ELU
+predictions plus `alltissueconcat_mlp_elu`; nine non-self ENCV predictions are
+used only for evolution coefficients. The target species' own submodels are
+never applied to that target. The MLP-ELU submodels use the specified
+two-hidden-layer 100/50 architecture with ELU, BatchNorm, dropout 0.5, AdamW
+(`learning_rate=1e-3`, `weight_decay=1e-3`), batch size 32, 300 epochs, and seed
+105.
 
 The species evolution plots read three pairwise tables from
 `generalization/species/`: `pairwise_evolutionary_distances.csv`,
@@ -40,48 +94,39 @@ The species evolution plots read three pairwise tables from
 unordered `species_a`/`species_b` pairs and its corresponding distance or
 difference column.
 
-## Array
-
-Edit `DATASET_PATH` in
-`generalization/array/train_array_generalization.py`, then run:
-
-```bash
-sbatch generalization/array/submit_array_generalization.sbatch
-python -m generalization.array.plot_array_generalization
-```
-
-For a local one-point check, size index 0 is the default; another point can be
-selected through the same environment variable used by Slurm:
-
-```bash
-SLURM_ARRAY_TASK_ID=7 python -m generalization.array.train_array_generalization
-```
-
-## Tissue
-
-Edit `DATASET_PATH` in
-`generalization/tissue/train_tissue_generalization.py`, then run:
-
-```bash
-sbatch generalization/tissue/submit_tissue_generalization.sbatch
-python -m generalization.tissue.plot_tissue_generalization
-```
-
 ## Species
 
-Edit `DATASET_PATH` in
-`generalization/species/train_species_generalization.py`, then run:
+Fetch the normalized beta matrix and series metadata from NCBI GEO, then
+prepare the target and pooled inputs, train the saved submodels, build
+target-specific LOO features, and run all ten species across the 30 sample
+sizes. The beta download is approximately 4.2 GB; the fetcher supports
+resuming a partial download and does not download the raw IDAT archive:
+
+The target transformation rounds every gestation value to three decimal
+places before calculating relative age, matching the retained recovery
+inputs.
 
 ```bash
+python -m generalization.species.fetch_gse223748
+python -m generalization.species.prepare_species_gse223748_inputs
+sbatch generalization/species/submit_species_mlp_elu_components.sbatch
+sbatch generalization/species/submit_species_elasticnetcv_components.sbatch
+sbatch generalization/species/submit_species_loo_features.sbatch
 sbatch generalization/species/submit_species_generalization.sbatch
 python -m generalization.species.plot_species_generalization
 python -m generalization.species.plot_species_evolution
 ```
 
-The separate species evolution command creates the molecular-evolutionary-distance,
-maximum-lifespan-difference, and gestation-difference panels after all ten
-species coefficient tables exist. Before that, it reports that the cross-species
-panels are pending; the species generalization command remains independent.
+Submit these jobs in order, using Slurm `afterok` dependencies when they are
+queued together. `PapioHamadryas` uses exact GSE223748 `Papio hamadryas`
+samples; `papio_anubis` is only the Ensembl proxy recorded in the evolutionary
+distance table.
+
+The ENCV submodels generate the nine cross-species features for each target.
+The size-zero species task then fits the fixed positive Elastic Net directed
+coefficients used by the molecular-evolutionary-distance,
+maximum-lifespan-difference, and gestation-difference panels. The plot command
+reads the resulting ten coefficient tables and the three pairwise CSV tables.
 
 ## Fixed scientific configuration and outputs
 

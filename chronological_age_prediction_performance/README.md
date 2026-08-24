@@ -1,16 +1,16 @@
 # Chronological-age prediction performance
 
-This directory reproduces the chronological-age comparisons from a
-wide table of component-clock predictions.  It intentionally contains only
-two runnable workflows: an all-architecture/component comparison and a
-cumulative component-clock ablation study.  Both train on the supplied
-training table, test on the supplied test table, and write all figures to the
-fixed relative directory `results/chronological_age_prediction/`.
+This directory reproduces the chronological-age comparisons from bundled
+sample-level component-clock predictions. It contains two runnable workflows:
+an all-architecture/component comparison and a cumulative component-clock
+ablation study. Both use `training_component_clock_predictions.csv` for model
+fitting, use `test_component_clock_predictions.csv` for held-out evaluation,
+and write figures to `results/chronological_age_prediction/`.
 
-## Input schema
+## Bundled inputs
 
-Supply one training file and one test file, each as CSV (or Parquet).  Every
-row is one sample and must contain the following columns:
+The training CSV contains nine GEO cohorts and the test CSV contains four
+held-out GEO cohorts. Every row is one sample with the following columns:
 
 ```text
 dataset, sample_id, age,
@@ -19,27 +19,34 @@ hrsinchphenoage, lin, skinandblood, yingcausage, zhangblup, zhangen,
 pchorvath2013, pchannum, pcphenoage, pcskinandblood
 ```
 
-`dataset` labels the held-out panel in the test file; `dataset, sample_id`
-must be unique; `age` and every component-clock prediction must be finite
-numeric values.  The architecture workflow uses the original
+The two tables contain only the 16 component clocks used by MetaClock;
+`dnamfitage`, unrelated cohorts, and duplicate legacy clock columns from the
+larger source table are excluded. `dataset, sample_id` is unique, and `age`
+and every component-clock prediction are finite numeric values. The
+architecture workflow uses the original
 estimators (scikit-learn, PyTorch, and LightGBM), so the runtime environment
 must include `lightgbm` in addition to the project's standard dependencies.
 
+## Exported chronological MetaClock weights
+
+The canonical 16-component chronological MetaClock is a
+`StandardScaler` followed by a linear-kernel `SVR`, fitted on all 3,353 bundled
+training samples from nine GEO cohorts. Its portable raw coefficients and
+training metadata are stored in
+`model_weights/metaclock_chronological_3353_samples_weights.csv` and
+`model_weights/metaclock_chronological_3353_samples_metadata.json`.
+Regenerate them with:
+
+```bash
+python -m chronological_age_prediction_performance.export_metaclock_weights
+```
+
 ## Run all architecture, component, and border plots
 
-Edit the two defaults at the top of
-`train_test_architectures.py` to your two paths, then run:
+Run:
 
 ```bash
 python -m chronological_age_prediction_performance.train_test_architectures
-```
-
-Alternatively, pass only the two path arguments:
-
-```bash
-python -m chronological_age_prediction_performance.train_test_architectures \
-  --training-dataset /path/to/training.csv \
-  --test-dataset /path/to/test.csv
 ```
 
 This writes architecture and component MAE--Pearson scatter plots, plus the
@@ -48,18 +55,10 @@ It also writes the corresponding metric CSV files.
 
 ## Run all ablations
 
-Edit the same two defaults at the top of `train_test_ablation.py`, then run:
+Run:
 
 ```bash
 python -m chronological_age_prediction_performance.train_test_ablation
-```
-
-Or provide only the two path arguments:
-
-```bash
-python -m chronological_age_prediction_performance.train_test_ablation \
-  --training-dataset /path/to/training.csv \
-  --test-dataset /path/to/test.csv
 ```
 
 The script refits the linear-SVR MetaClock after cumulatively removing Zhang

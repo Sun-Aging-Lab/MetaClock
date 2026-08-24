@@ -1,11 +1,9 @@
 #!/usr/bin/env python3
-"""Fit and test one species sample-size point (50 resample replicates).
+"""Fit and test one GSE223748 species sample-size point (50 resample replicates).
 
-Edit only ``DATASET_PATH``.  The input is one CSV/TSV/parquet table containing
-``age``, direct ``cg...`` beta-value columns, and ten ``*_mlp_elu`` component
-predictions (nine held-out species plus ``alltissueconcat_mlp_elu``).  Optional
-``*_elasticnetcv`` columns support the three cross-species evolution panels.
-``sample_id``, ``species``, ``dataset``, and ``title`` are metadata columns.
+Direct CpGs and target samples come from the prepared GSE223748 species input.
+Meta features come from nine non-self saved species models plus the pooled
+MLP-ELU model; ENCV submodel features support the evolution coefficients.
 
 The Slurm array task ID selects one of 30 log-spaced training sizes.  A local
 run without Slurm evaluates size index 0.
@@ -31,38 +29,19 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 from sklearn.svm import SVR
 
-############################## USER INPUT ####################################
+from .species_config import (
+    DISPLAY_NAMES,
+    POOLED_COMPONENT,
+    SPECIES,
+    direct_input_path,
+    loo_feature_path,
+)
 
-DATASET_PATH = Path("/path/to/your/file")  # fill in your path
+############################## USER INPUT ####################################
 
 ######################## FIXED SCIENTIFIC CONFIG #############################
 
 TARGET = "age"
-POOLED_COMPONENT = "alltissueconcat_mlp_elu"
-SPECIES = (
-    "BosTaurus",
-    "DelphinapterusLeucas",
-    "EquusCaballus",
-    "HeterocephalusGlaber",
-    "HomoSapiens",
-    "MacacaMulatta",
-    "MusMusculus",
-    "OvisAries",
-    "PapioHamadryas",
-    "RattusNorvegicus",
-)
-DISPLAY_NAMES = {
-    "BosTaurus": "Bos taurus",
-    "DelphinapterusLeucas": "Delphinapterus leucas",
-    "EquusCaballus": "Equus caballus",
-    "HeterocephalusGlaber": "Heterocephalus glaber",
-    "HomoSapiens": "Homo sapiens",
-    "MacacaMulatta": "Macaca mulatta",
-    "MusMusculus": "Mus musculus",
-    "OvisAries": "Ovis aries",
-    "PapioHamadryas": "Papio hamadryas",
-    "RattusNorvegicus": "Rattus norvegicus",
-}
 MLP_ELU_ARCHITECTURE = {
     "hidden_dims": [100, 50],
     "activation": "ELU",
@@ -88,7 +67,7 @@ L1_RATIO = 0.5
 MAX_ITER = 20_000
 TOLERANCE = 1e-4
 CONFIG_ID = (
-    "generalization-v3-split105-30x50-pandas-sample-scaled-encv5-"
+    "generalization-v4-gse223748-submodels-split105-30x50-pandas-sample-scaled-encv5-"
     "scaled-svr-strict-mlp-elu-loo"
 )
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -115,7 +94,7 @@ RESULT_COLUMNS = (
 def read_table(path: Path) -> pd.DataFrame:
     """Read a supported table without silently guessing arbitrary formats."""
     if not path.is_file():
-        raise FileNotFoundError(f"Set DATASET_PATH to an existing file; found {path}")
+        raise FileNotFoundError(f"Required prepared species input does not exist: {path}")
     suffixes = "".join(path.suffixes).lower()
     if suffixes.endswith((".parquet", ".pq")):
         frame = pd.read_parquet(path)
@@ -124,7 +103,7 @@ def read_table(path: Path) -> pd.DataFrame:
     elif suffixes.endswith((".csv", ".csv.gz")):
         frame = pd.read_csv(path)
     else:
-        raise ValueError("DATASET_PATH must be CSV, TSV, or parquet")
+        raise ValueError("Prepared species input must be CSV, TSV, or parquet")
     if "sample_id" in frame:
         frame = frame.set_index(frame["sample_id"].astype(str)).drop(columns="sample_id")
     else:
@@ -162,58 +141,47 @@ def numeric_features(frame: pd.DataFrame, columns: list[str], label: str) -> pd.
 
 
 def load_model_inputs(
-    path: Path,
-) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame | None, str, str]:
-    """Return direct CpGs, MLP-ELU meta inputs, and optional evolution inputs."""
-    raw = read_table(path)
-    if TARGET not in raw:
-        raise ValueError(f"Input is missing required target column {TARGET!r}")
+    name: str,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, str, str]:
+    """Load one GSE-derived target and its saved-submodel LOO features."""
+    if name not in SPECIES:
+        raise ValueError(f"Species must be one of {SPECIES}; found {name!r}")
+    raw = read_table(direct_input_path(name))
+    loo_path = loo_feature_path(name)
+    if not loo_path.is_file():
+        raise FileNotFoundError(
+            f"Missing saved-submodel LOO features: {loo_path}. Run "
+            f"python -m generalization.species.build_species_loo_features --species {name}"
+        )
+    loo = read_table(loo_path)
+    if not raw.index.equals(loo.index):
+        raise ValueError(f"Direct and LOO sample IDs differ for {name}")
     ages = pd.to_numeric(raw[TARGET], errors="coerce")
+    if not np.allclose(ages.to_numpy(float), pd.to_numeric(loo[TARGET]).to_numpy(float)):
+        raise ValueError(f"Direct and LOO ages differ for {name}")
     keep = ages.notna() & np.isfinite(ages)
-    raw, ages = raw.loc[keep].copy(), ages.loc[keep].astype(float)
+    raw, loo, ages = raw.loc[keep].copy(), loo.loc[keep].copy(), ages.loc[keep].astype(float)
     if len(raw) < 25:
         raise ValueError("At least 25 valid age-labelled samples are required")
-    fallback_name = dataset_name(raw, path)
-    raw_name = constant_text(raw, "species", fallback_name)
-    name = re.sub(r"[^A-Za-z0-9_.-]+", "_", raw_name).strip("._")
-    if name not in SPECIES:
-        raise ValueError(f"Species must be one of the formal ten-species set; found {name!r}")
-    title = constant_text(raw, "title", DISPLAY_NAMES[name])
     cpg_columns = [str(column) for column in raw if str(column).startswith("cg")]
-    if not cpg_columns:
-        raise ValueError("No direct CpG columns beginning with 'cg' were found")
-    component_columns = sorted(str(column) for column in raw if str(column).endswith("_mlp_elu"))
-    expected_components = {
+    component_columns = [
         *(f"{species}_mlp_elu" for species in SPECIES if species != name),
-        POOLED_COMPONENT,
-    }
-    if set(component_columns) != expected_components or len(component_columns) != 10:
-        raise ValueError(
-            "Species Meta input must be the nine other-species LOO MLP-ELU columns plus "
-            f"{POOLED_COMPONENT!r}; unexpected/missing columns: "
-            f"{sorted(set(component_columns) ^ expected_components)}"
-        )
-    evolution_columns = sorted(
-        str(column) for column in raw if str(column).endswith("_elasticnetcv")
-    )
-    expected_evolution = {f"{species}_elasticnetcv" for species in SPECIES if species != name}
-    if evolution_columns and set(evolution_columns) != expected_evolution:
-        raise ValueError(
-            "Evolution input must be the nine other-species ENCV columns; "
-            f"unexpected/missing columns: {sorted(set(evolution_columns) ^ expected_evolution)}"
-        )
+        f"{POOLED_COMPONENT}_mlp_elu",
+    ]
+    evolution_columns = [
+        f"{species}_elasticnetcv" for species in SPECIES if species != name
+    ]
+    missing = sorted(set([*component_columns, *evolution_columns]) - set(loo.columns))
+    if missing:
+        raise ValueError(f"LOO feature table is missing columns: {missing}")
     direct = numeric_features(raw, cpg_columns, "Direct CpG matrix")
-    meta = numeric_features(raw, component_columns, "MLP-ELU component matrix")
-    evolution = (
-        numeric_features(raw, evolution_columns, "ENCV evolution component matrix")
-        if evolution_columns
-        else None
-    )
+    meta = numeric_features(loo, component_columns, "MLP-ELU component matrix")
+    evolution = numeric_features(loo, evolution_columns, "ENCV evolution component matrix")
     direct[TARGET] = ages
     meta[TARGET] = ages
     if evolution is not None:
         evolution[TARGET] = ages
-    return direct, meta, evolution, name, title
+    return direct, meta, evolution, name, DISPLAY_NAMES[name]
 
 
 def split_and_impute(
@@ -479,15 +447,16 @@ def atomic_json(payload: dict[str, object], output: Path) -> None:
 
 def selected_size_index() -> int:
     """Use Slurm's point index, defaulting to the first point for a local run."""
-    value = int(os.environ.get("SLURM_ARRAY_TASK_ID", "0"))
+    value = int(os.environ.get("METACLOCK_SIZE_INDEX", os.environ.get("SLURM_ARRAY_TASK_ID", "0")))
     if not 0 <= value < N_TRAINING_SIZES:
-        raise ValueError(f"SLURM_ARRAY_TASK_ID must be 0..{N_TRAINING_SIZES - 1}")
+        raise ValueError(f"Size index must be 0..{N_TRAINING_SIZES - 1}")
     return value
 
 
 def main() -> int:
-    path = DATASET_PATH.expanduser().resolve()
-    direct, meta, evolution, name, title = load_model_inputs(path)
+    name = os.environ.get("TARGET_SPECIES", SPECIES[0])
+    path = direct_input_path(name).expanduser().resolve()
+    direct, meta, evolution, name, title = load_model_inputs(name)
     direct_train, direct_test, meta_train, meta_test = split_and_impute(direct, meta)
     sizes = training_sizes(len(direct_train))
     size_index = selected_size_index()

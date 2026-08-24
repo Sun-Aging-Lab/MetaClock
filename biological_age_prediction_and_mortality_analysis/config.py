@@ -14,6 +14,7 @@ def load_manifest(path: Path = MANIFEST_PATH) -> dict[str, Any]:
     manifest = json.loads(path.read_text(encoding="utf-8"))
     if manifest.get("schema_version") != 1:
         raise ValueError("Unsupported analysis manifest schema.")
+    biological = manifest["biological_analysis"]
     enrichment = manifest["enrichment"]
     for prefix, expected_candidates, expected_affine in (
         ("chronological", 16, 8),
@@ -30,14 +31,54 @@ def load_manifest(path: Path = MANIFEST_PATH) -> dict[str, Any]:
             raise ValueError(f"{prefix} affine components must contain {expected_affine} clocks.")
         if set(affine).intersection(non_affine) or set(affine).union(non_affine) != set(candidates):
             raise ValueError(f"{prefix} affine/non-affine manifests must partition candidates.")
+    oof_components = tuple(biological["oof_component_features"])
+    external_components = tuple(biological["external_component_features"])
+    if oof_components != tuple(enrichment["biological_candidates"]):
+        raise ValueError("OOF component features must match the 19 biological candidates.")
+    expected_external = tuple(
+        component for component in oof_components if component not in {"grimage", "grimage2"}
+    )
+    if external_components != expected_external:
+        raise ValueError("External components must be the ordered OOF list without GrimAge1/2.")
+    dnam = biological["inchianti_dnam_features"]
+    prefix_counts = dnam["prefix_counts"]
+    if int(dnam["total"]) != sum(int(value) for value in prefix_counts.values()):
+        raise ValueError("InCHIANTI DNAm feature prefix counts do not sum to the total.")
+    fold_assignment = biological["oof_fold_assignment"]
+    if (
+        int(fold_assignment["rows"]) != int(biological["inchianti_participants"])
+        or int(fold_assignment["folds"]) != 5
+        or fold_assignment["id_column"] != "ID"
+        or fold_assignment["fold_column"] != "fold"
+        or tuple(fold_assignment["fold_labels"]) != tuple(range(5))
+        or sum(int(value) for value in fold_assignment["fold_counts"].values())
+        != int(fold_assignment["rows"])
+    ):
+        raise ValueError("The fixed InCHIANTI OOF fold manifest metadata is inconsistent.")
     return manifest
 
 
 MANIFEST = load_manifest()
 BIOLOGICAL_ANALYSIS = MANIFEST["biological_analysis"]
 ENRICHMENT = MANIFEST["enrichment"]
+OOF_COMPONENTS = tuple(BIOLOGICAL_ANALYSIS["oof_component_features"])
 EXTERNAL_COMPONENTS = tuple(BIOLOGICAL_ANALYSIS["external_component_features"])
 EXTERNAL_MODELS = tuple(BIOLOGICAL_ANALYSIS["external_models"])
+INCHIANTI_DNAM_FEATURE_COUNT = int(BIOLOGICAL_ANALYSIS["inchianti_dnam_features"]["total"])
+DNAM_FEATURE_PREFIX_COUNTS = {
+    str(prefix): int(count)
+    for prefix, count in BIOLOGICAL_ANALYSIS["inchianti_dnam_features"]["prefix_counts"].items()
+}
+DNAM_FEATURE_PREFIXES = tuple(DNAM_FEATURE_PREFIX_COUNTS)
+INCHIANTI_COMPLETE_CASE_SAMPLES = int(BIOLOGICAL_ANALYSIS["inchianti_complete_case_samples"])
+INCHIANTI_PARTICIPANTS = int(BIOLOGICAL_ANALYSIS["inchianti_participants"])
+INCHIANTI_DUPLICATE_PAIRS = int(BIOLOGICAL_ANALYSIS["inchianti_duplicate_pairs"])
+INCHIANTI_COX_EVENTS = int(BIOLOGICAL_ANALYSIS["inchianti_cox_events"])
+OOF_FOLD_ASSIGNMENT = BIOLOGICAL_ANALYSIS["oof_fold_assignment"]
+INCHIANTI_OOF_FOLD_ASSIGNMENT_PATH = MANIFEST_PATH.parent / str(
+    OOF_FOLD_ASSIGNMENT["path"]
+)
+INCHIANTI_OOF_FOLDS = int(OOF_FOLD_ASSIGNMENT["folds"])
 
 
 def require_exact_sequence(observed: list[str], expected: tuple[str, ...], label: str) -> None:

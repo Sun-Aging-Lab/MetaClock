@@ -26,11 +26,13 @@ from scipy.stats import ttest_ind
 from sklearn.linear_model import LinearRegression
 
 from .config import EXTERNAL_COMPONENTS
+from .data import numeric_matrix, validate_dnam_feature_names
 from .plotting import LABELS, configure_style, save_vector_pair
+from .provenance import software_versions
 
 # --- Paths: this is the only user-edited raw input ---
 
-DATASET_PATH = Path("/path/to/your/file")  # fill in your path
+DATASET_PATH = Path("data/biological_age/external_disease.parquet")
 ROOT = Path(__file__).resolve().parent
 MODEL_DIR = ROOT / "outputs" / "biological_age_prediction" / "models"
 OUTPUT_DIR = ROOT / "outputs" / "external_disease"
@@ -90,7 +92,10 @@ def load_trained_artifact(name: str) -> tuple[Any, list[str]]:
             f"expected {model_path} and {feature_path}."
         )
     features = pd.read_csv(feature_path)["feature"].astype(str).tolist()
-    return joblib.load(model_path), features
+    model = joblib.load(model_path)
+    if int(getattr(model, "n_features_in_", -1)) != len(features):
+        raise ValueError(f"{name} model and ordered feature manifest have different widths.")
+    return model, features
 
 
 # --- PyAging API inference for BioMeta components and DNAmPhenoAge ---
@@ -106,7 +111,7 @@ def run_pyaging(frame: pd.DataFrame, clocks: list[str]) -> pd.DataFrame:
     cpgs = [str(column) for column in frame.columns if str(column).lower().startswith("cg")]
     if not cpgs:
         raise ValueError("External dataset has no CpG beta columns named cg....")
-    matrix = frame[cpgs].apply(pd.to_numeric, errors="coerce").fillna(0.0).to_numpy(np.float32)
+    matrix = numeric_matrix(frame, cpgs)
     adata = ad.AnnData(matrix)
     adata.var_names = cpgs
     adata.obs = frame[["sampleID", "age"]].copy().set_index("sampleID", drop=False)
@@ -137,9 +142,7 @@ def baseline_matrix(frame: pd.DataFrame, features: list[str]) -> np.ndarray:
     present = [feature for feature in features if feature in frame.columns]
     if present:
         positions = {feature: index for index, feature in enumerate(features)}
-        values = (
-            frame[present].apply(pd.to_numeric, errors="coerce").fillna(0.0).to_numpy(np.float32)
-        )
+        values = numeric_matrix(frame, present)
         matrix[:, [positions[feature] for feature in present]] = values
     return matrix
 
@@ -279,9 +282,12 @@ def main() -> int:
     baseline, baseline_features = load_trained_artifact("baseline")
     if biometa_features != list(EXTERNAL_COMPONENTS):
         raise ValueError("BioMeta artifact does not use the canonical ordered 17 components.")
+    validate_dnam_feature_names(baseline_features)
     clocks = list(dict.fromkeys([*biometa_features, "dnamphenoage"]))
     clock_outputs = run_pyaging(frame, clocks).set_index("sampleID")
-    biometa_x = clock_outputs.loc[frame["sampleID"], biometa_features].to_numpy(float)
+    biometa_x = numeric_matrix(
+        clock_outputs.loc[frame["sampleID"]], biometa_features, dtype=np.float64
+    )
     baseline_x = baseline_matrix(frame, baseline_features)
     predictions: list[pd.DataFrame] = []
     template = frame[["dataset", "disease", "sampleID", "age", "group"]].copy()
@@ -305,9 +311,19 @@ def main() -> int:
                 "models": list(MODEL_ORDER),
                 "biometa_artifact": str(MODEL_DIR / "bio_metaclock.joblib"),
                 "baseline_artifact": str(MODEL_DIR / "baseline.joblib"),
+                "baseline_features": len(baseline_features),
+                "baseline_features_present": sum(
+                    feature in frame.columns for feature in baseline_features
+                ),
+                "baseline_features_zero_filled": sum(
+                    feature not in frame.columns for feature in baseline_features
+                ),
                 "pyaging_api_clock": "dnamphenoage",
                 "age_correction": "within dataset/model using pooled disease and control samples",
                 "test": "two-sided Welch t-test; Bonferroni across three models",
+                "software": software_versions(
+                    ["numpy", "pandas", "scipy", "statsmodels", "pyaging", "anndata"]
+                ),
             },
             indent=2,
         )

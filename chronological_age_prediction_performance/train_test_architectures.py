@@ -1,16 +1,13 @@
 #!/usr/bin/env python3
 """Train Figure-2 chronological-age architectures and draw every comparison plot.
 
-Replace only the two ``Path('/path/to/your/file')`` defaults below (or pass
-the same two paths on the command line).  The training and test tables are
-wide CSV or Parquet files with ``dataset``, ``sample_id``, ``age``, and the 16
-component-clock columns listed in ``COMPONENT_CLOCKS``.  A test file may
-contain one or more datasets; each becomes one scatter panel.
+The bundled training and test CSV files contain ``dataset``, ``sample_id``,
+``age``, and the 16 component-clock columns listed in ``COMPONENT_CLOCKS``.
+Each test dataset becomes one scatter panel.
 """
 
 from __future__ import annotations
 
-import argparse
 import os
 import tempfile
 from pathlib import Path
@@ -39,10 +36,11 @@ from sklearn.svm import SVR
 from generalization.fonts import register_fonts
 
 # ---------------------------------------------------------------------------
-# User-editable paths and fixed Figure-2 settings
+# Bundled inputs and fixed Figure-2 settings
 # ---------------------------------------------------------------------------
-DEFAULT_TRAINING_DATASET = Path("/path/to/your/file")  # fill in your path
-DEFAULT_TEST_DATASET = Path("/path/to/your/file")  # fill in your path
+MODULE_DIR = Path(__file__).resolve().parent
+DEFAULT_TRAINING_DATASET = MODULE_DIR / "training_component_clock_predictions.csv"
+DEFAULT_TEST_DATASET = MODULE_DIR / "test_component_clock_predictions.csv"
 OUTPUT_DIR = Path(__file__).resolve().parents[1] / "results/chronological_age_prediction"
 
 COMPONENT_CLOCKS = (
@@ -515,18 +513,10 @@ def plot_boundary(comparison: pd.DataFrame) -> None:
     save_pair(figure, "pearson_mae_submodel_architectures")
 
 
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--training-dataset", type=Path, default=DEFAULT_TRAINING_DATASET)
-    parser.add_argument("--test-dataset", type=Path, default=DEFAULT_TEST_DATASET)
-    return parser.parse_args()
-
-
 def main() -> None:
-    args = parse_args()
     configure_style()
     architectures, components, comparison = train_and_evaluate(
-        read_dataset(args.training_dataset), read_dataset(args.test_dataset)
+        read_dataset(DEFAULT_TRAINING_DATASET), read_dataset(DEFAULT_TEST_DATASET)
     )
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     architectures.to_csv(OUTPUT_DIR / "architecture_metrics.csv", index=False)
