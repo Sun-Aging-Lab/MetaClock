@@ -9,6 +9,7 @@ import numpy as np
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.linear_model import ElasticNetCV, LassoCV, LinearRegression, RidgeCV
 from sklearn.model_selection import KFold
+from sklearn.neural_network import MLPRegressor
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 from sklearn.svm import SVR
@@ -21,6 +22,7 @@ _ARCHITECTURES = (
     "linear_regression",
     "random_forest",
     "svr",
+    "mlp",
     "lightgbm",
 )
 _ALIASES = {
@@ -31,6 +33,8 @@ _ALIASES = {
     "rf": "random_forest",
     "randomforest": "random_forest",
     "svm": "svr",
+    "mlp_regressor": "mlp",
+    "neural_network": "mlp",
     "lgbm": "lightgbm",
 }
 
@@ -111,6 +115,10 @@ def make_estimator(
         defaults = {"kernel": "linear"}
         defaults.update(params)
         return _scaled(SVR(**defaults))
+    if name == "mlp":
+        defaults = {"max_iter": 2_000, "random_state": random_state}
+        defaults.update(params)
+        return _scaled(MLPRegressor(**defaults))
 
     try:
         module = import_module("lightgbm")
