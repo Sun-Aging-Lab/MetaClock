@@ -29,7 +29,7 @@ LABELS = {
     "clinical_phenoage": "PhenoAge",
 }
 COLORS = {
-    "bio_metaclock": "#0072B2",
+    "bio_metaclock": "#91D1C2",
     "baseline": "#4D4D4D",
     "dnamphenoage": "#009E73",
     "clinical_phenoage": "#CC79A7",

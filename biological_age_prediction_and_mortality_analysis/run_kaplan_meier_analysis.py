@@ -71,7 +71,7 @@ ALPHAS = np.logspace(0, -5, 30)
 TRAINED_MODELS = ("bio_metaclock", "baseline")
 MODEL_ORDER = (*TRAINED_MODELS, "clinical_phenoage")
 GROUP_ORDER = ("bottom_20", "top_20")
-GROUP_COLORS = {"bottom_20": "#4C78A8", "top_20": "#E45756"}
+GROUP_COLORS = {"bottom_20": "#E64B35", "top_20": "#4DBBD5"}
 REQUIRED_COLUMNS = {
     "ID", "sampleID", "age_years", TARGET, COMPLETE_CASE, "INTV_MOR", "sex_male"
 }

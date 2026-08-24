@@ -56,17 +56,22 @@ in the input matrix and `adata.var_names` according to pyaging's input rules.
 
 ### Fit and predict
 
-The built-in chronological preset contains the requested 16 component models.
-The fitted result is an sklearn-compatible pipeline whose `predict()` method
-first runs the same pyaging components and then applies the trained
-meta-regressor:
+Pass any ordered list of pyaging component-model names. The fitted result is an
+sklearn-compatible pipeline whose `predict()` method first runs the same
+components in the same order and then applies the trained meta-regressor:
 
 ```python
 import metaclock
 
+component_model_list = [
+    "horvath2013",
+    "hannum",
+    "dnamphenoage",
+]
+
 model = metaclock.fit(
     train_adata,
-    metaclock.CHRONOLOGICAL_16_COMPONENT_MODELS,
+    component_model_list,
     "elastic_net",
     target="age",
 )
@@ -84,12 +89,14 @@ To run the component clocks without fitting a meta-model:
 ```python
 component_outputs = metaclock.predict_components(
     test_adata,
-    metaclock.CHRONOLOGICAL_16_COMPONENT_MODELS,
+    component_model_list,
 )
 ```
 
 Supported architectures are `elastic_net`, `lasso`, `ridge`,
-`linear_regression`, `random_forest`, `svr`, and `lightgbm`. LightGBM is part
+`linear_regression`, `random_forest`, `svr`, `mlp`, and `lightgbm`. The `mlp`
+architecture uses `StandardScaler` followed by sklearn's `MLPRegressor`; its
+network parameters can be overridden through `model_params`. LightGBM is part
 of the standard locked environment and uses its sklearn-compatible
 `LGBMRegressor` interface.
 
@@ -111,7 +118,7 @@ being silently imputed.
 
 The implementation was validated with Python 3.11.14, pyaging 0.1.30,
 anndata 0.12.7, numpy 2.3.5, pandas 2.3.3, scikit-learn 1.8.0, and LightGBM
-4.6.0. In the InCHIANTI Illumina 450K integration check, all 16 component
+4.6.0. In the InCHIANTI Illumina 450K integration check, all selected component
 outputs matched the existing pyaging reference with a maximum absolute error
 of 1.42e-13. A donor-grouped 18-sample holdout produced MAE 1.86 years, RMSE
 2.13 years, R2 0.975, and Pearson r 0.989.
