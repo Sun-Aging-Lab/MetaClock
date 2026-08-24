@@ -1,7 +1,6 @@
 # Chronological-age prediction performance
 
-This directory reproduces the chronological-age comparisons from bundled
-sample-level component-clock predictions. It contains two runnable workflows:
+This directory reproduces the chronological-age comparisons. It contains two workflows:
 an all-architecture/component comparison and a cumulative component-clock
 ablation study. Both use `training_component_clock_predictions.csv` for model
 fitting, use `test_component_clock_predictions.csv` for held-out evaluation,
@@ -19,13 +18,6 @@ hrsinchphenoage, lin, skinandblood, yingcausage, zhangblup, zhangen,
 pchorvath2013, pchannum, pcphenoage, pcskinandblood
 ```
 
-The two tables contain only the 16 component clocks used by MetaClock;
-`dnamfitage`, unrelated cohorts, and duplicate legacy clock columns from the
-larger source table are excluded. `dataset, sample_id` is unique, and `age`
-and every component-clock prediction are finite numeric values. The
-architecture workflow uses the original
-estimators (scikit-learn, PyTorch, and LightGBM), so the runtime environment
-must include `lightgbm` in addition to the project's standard dependencies.
 
 ## Exported chronological MetaClock weights
 
