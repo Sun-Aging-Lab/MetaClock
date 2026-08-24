@@ -6,7 +6,6 @@ from __future__ import annotations
 import argparse
 import json
 import platform
-import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
@@ -14,9 +13,17 @@ from typing import Any
 
 import pandas as pd
 
+from generalization.geo_data import RemoteFile, download_file
+from intervention_analysis.geo_fetch import RateLimiter, fetch_gse
+from intervention_analysis.paths import (
+    DEFAULT_FETCH_DIR,
+    relative_path,
+    repo_child,
+    repo_path,
+)
+
 HERE = Path(__file__).resolve().parent
 CONFIG_DIR = HERE / "config"
-DEFAULT_PIPELINE_ROOT = Path("/orcd/pool/007/edsun_shared/yncheng/meta_clock_bio/rejuvenation_dnam")
 
 
 ACQUISITION_MANIFEST = CONFIG_DIR / "matrix_acquisition_manifest_64.csv"
@@ -31,12 +38,12 @@ def parse_args() -> argparse.Namespace:
             "frozen 77-intervention analysis. Existing valid files are reused."
         )
     )
-    parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument(
-        "--pipeline-root",
-        type=Path,
-        default=DEFAULT_PIPELINE_ROOT,
-        help="Directory containing the established GEO fetch/download helpers.",
+        "--output-dir",
+        type=repo_path,
+        default=DEFAULT_FETCH_DIR,
+        metavar="REPO_RELATIVE_PATH",
+        help="Repository-relative output directory (default: data/intervention/geo_fetch_77).",
     )
     parser.add_argument("--metadata-workers", type=int, default=3)
     parser.add_argument("--matrix-workers", type=int, default=2)
@@ -47,9 +54,9 @@ def parse_args() -> argparse.Namespace:
         help="Fetch metadata but do not download matrix files.",
     )
     parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Validate the frozen manifest and print the acquisition plan without writing.",
+        "--only-gse",
+        nargs="+",
+        help="Fetch a subset of frozen GSE accessions for debugging.",
     )
     return parser.parse_args()
 
@@ -57,14 +64,18 @@ def parse_args() -> argparse.Namespace:
 def write_json_atomic(payload: dict[str, Any], path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(path.suffix + ".tmp")
-    temporary.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    temporary.write_text(
+        json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
     temporary.replace(path)
 
 
 def validate_frozen_inputs() -> tuple[pd.DataFrame, list[str]]:
     acquisition = pd.read_csv(ACQUISITION_MANIFEST, dtype=str)
     valid = pd.read_csv(VALID_RESULTS, dtype=str)
-    gse_ids = [line.strip() for line in GSE_LIST.read_text().splitlines() if line.strip()]
+    gse_ids = [
+        line.strip() for line in GSE_LIST.read_text().splitlines() if line.strip()
+    ]
     required = {
         "gse_id",
         "analysis_branch",
@@ -82,7 +93,9 @@ def validate_frozen_inputs() -> tuple[pd.DataFrame, list[str]]:
         raise ValueError("Matrix acquisition manifest must have one row per 64 GSE")
     if len(gse_ids) != 64 or len(set(gse_ids)) != 64:
         raise ValueError("Frozen GSE list must contain 64 unique accessions")
-    if set(gse_ids) != set(valid["gse_id"]) or set(gse_ids) != set(acquisition["gse_id"]):
+    if set(gse_ids) != set(valid["gse_id"]) or set(gse_ids) != set(
+        acquisition["gse_id"]
+    ):
         raise ValueError("GSE membership differs across frozen inputs")
     acquisition["expected_size_bytes"] = pd.to_numeric(
         acquisition["expected_size_bytes"], errors="raise"
@@ -97,15 +110,13 @@ def fetch_metadata(
     output_dir: Path,
     workers: int,
     requests_per_second: float,
-    rate_limiter_class: Any,
-    fetch_gse_function: Any,
 ) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
-    limiter = rate_limiter_class(requests_per_second)
+    limiter = RateLimiter(requests_per_second)
     successes: list[dict[str, Any]] = []
     failures: list[dict[str, str]] = []
     with ThreadPoolExecutor(max_workers=workers) as executor:
         futures = {
-            executor.submit(fetch_gse_function, gse, output_dir, limiter): gse for gse in gse_ids
+            executor.submit(fetch_gse, gse, output_dir, limiter): gse for gse in gse_ids
         }
         for future in as_completed(futures):
             gse = futures[future]
@@ -116,14 +127,16 @@ def fetch_metadata(
     return successes, failures
 
 
-def fetch_matrix(row: Any, matrix_root: Path, download_function: Any) -> dict[str, Any]:
-    output = matrix_root / str(row.matrix_file)
+def fetch_matrix(row: Any, matrix_root: Path) -> dict[str, Any]:
+    output = repo_child(matrix_root, str(row.matrix_file))
     if output.exists() and output.stat().st_size != int(row.expected_size_bytes):
         raise ValueError(
             f"{row.gse_id}: cached size {output.stat().st_size} differs from "
             f"expected {row.expected_size_bytes}; move the invalid file before retrying"
         )
-    size, download_status = download_function(str(row.url), output)
+    cached = output.is_file()
+    downloaded = download_file(RemoteFile(output.name, str(row.url)), output)
+    size = downloaded.stat().st_size
     if size != int(row.expected_size_bytes):
         raise ValueError(
             f"{row.gse_id}: downloaded size {size} differs from {row.expected_size_bytes}"
@@ -133,9 +146,9 @@ def fetch_matrix(row: Any, matrix_root: Path, download_function: Any) -> dict[st
         "matrix_file": str(row.matrix_file),
         "matrix_format": str(row.matrix_format),
         "url": str(row.url),
-        "path": str(output.resolve()),
+        "path": relative_path(output),
         "size_bytes": size,
-        "status": ("cached" if download_status == "cached_not_rehashed" else "downloaded"),
+        "status": "cached" if cached else "downloaded",
     }
 
 
@@ -145,20 +158,18 @@ def main() -> int:
         raise ValueError("Worker counts must be positive")
     if args.requests_per_second <= 0:
         raise ValueError("--requests-per-second must be positive")
-    helper_paths = [
-        args.pipeline_root / "download_geo_biometaclock_series.py",
-        args.pipeline_root / "fetch_geo_review_metadata.py",
-    ]
-    missing_helpers = [str(path) for path in helper_paths if not path.is_file()]
-    if missing_helpers:
-        raise FileNotFoundError(f"Missing GEO pipeline helpers: {missing_helpers}")
-    sys.path.insert(0, str(args.pipeline_root.resolve()))
-    from download_geo_biometaclock_series import download
-    from fetch_geo_review_metadata import RateLimiter, fetch_gse
-
     acquisition, gse_ids = validate_frozen_inputs()
+    if args.only_gse:
+        requested = set(args.only_gse)
+        unknown = sorted(requested.difference(gse_ids))
+        if unknown:
+            raise ValueError(f"Unknown frozen GSE accessions: {unknown}")
+        gse_ids = [gse for gse in gse_ids if gse in requested]
+        acquisition = acquisition.loc[acquisition["gse_id"].isin(requested)].copy()
     plan = {
-        "n_interventions": 77,
+        "n_interventions": int(
+            pd.to_numeric(acquisition["n_final_comparisons"], errors="raise").sum()
+        ),
         "n_gse": len(gse_ids),
         "n_matrix_files": len(acquisition),
         "matrix_total_expected_bytes": int(acquisition["expected_size_bytes"].sum()),
@@ -166,13 +177,8 @@ def main() -> int:
             float(acquisition["expected_size_bytes"].sum()) / 1024**3, 3
         ),
         "metadata_only": args.metadata_only,
-        "output_dir": str(args.output_dir.resolve()),
-        "pipeline_root": str(args.pipeline_root.resolve()),
+        "output_dir": relative_path(args.output_dir),
     }
-    if args.dry_run:
-        print(json.dumps({"status": "dry_run", **plan}, indent=2, sort_keys=True))
-        return 0
-
     args.output_dir.mkdir(parents=True, exist_ok=True)
     metadata_dir = args.output_dir / "metadata"
     matrix_root = args.output_dir / "matrices"
@@ -181,8 +187,6 @@ def main() -> int:
         metadata_dir,
         workers=args.metadata_workers,
         requests_per_second=args.requests_per_second,
-        rate_limiter_class=RateLimiter,
-        fetch_gse_function=fetch_gse,
     )
 
     matrix_results: list[dict[str, Any]] = []
@@ -190,7 +194,7 @@ def main() -> int:
     if not args.metadata_only:
         with ThreadPoolExecutor(max_workers=args.matrix_workers) as executor:
             futures = {
-                executor.submit(fetch_matrix, row, matrix_root, download): str(row.gse_id)
+                executor.submit(fetch_matrix, row, matrix_root): str(row.gse_id)
                 for row in acquisition.itertuples(index=False)
             }
             for future in as_completed(futures):
@@ -212,8 +216,8 @@ def main() -> int:
         "matrix_success": len(matrix_results),
         "matrix_failures": sorted(matrix_failures, key=lambda row: row["gse_id"]),
         "software": {"python": platform.python_version(), "pandas": pd.__version__},
-        "frozen_matrix_manifest": str(ACQUISITION_MANIFEST),
-        "frozen_gse_list": str(GSE_LIST),
+        "frozen_matrix_manifest": relative_path(ACQUISITION_MANIFEST),
+        "frozen_gse_list": relative_path(GSE_LIST),
     }
     write_json_atomic(summary, args.output_dir / "fetch_summary.json")
     print(json.dumps(summary, indent=2, sort_keys=True))

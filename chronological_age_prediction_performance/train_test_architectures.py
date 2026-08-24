@@ -8,11 +8,10 @@ Each test dataset becomes one scatter panel.
 
 from __future__ import annotations
 
-import os
-import tempfile
 from pathlib import Path
 
-os.environ.setdefault("MPLCONFIGDIR", str(Path(tempfile.gettempdir()) / "metaclock-mpl"))
+from repository_matplotlib import MPLCONFIGDIR
+from repository_paths import PROJECT_ROOT
 
 import matplotlib
 
@@ -41,7 +40,7 @@ from generalization.fonts import register_fonts
 MODULE_DIR = Path(__file__).resolve().parent
 DEFAULT_TRAINING_DATASET = MODULE_DIR / "training_component_clock_predictions.csv"
 DEFAULT_TEST_DATASET = MODULE_DIR / "test_component_clock_predictions.csv"
-OUTPUT_DIR = Path(__file__).resolve().parents[1] / "results/chronological_age_prediction"
+OUTPUT_DIR = PROJECT_ROOT / "results/chronological_age_prediction"
 
 COMPONENT_CLOCKS = (
     "horvath2013",
@@ -323,6 +322,7 @@ def train_and_evaluate(
 # Figure-2 scatter plotting (architecture, component, and boundary panel)
 # ---------------------------------------------------------------------------
 def configure_style() -> None:
+    MPLCONFIGDIR.mkdir(parents=True, exist_ok=True)
     register_fonts()
     plt.rcParams.update(
         {

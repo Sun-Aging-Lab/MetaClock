@@ -25,6 +25,8 @@ from sklearn.model_selection import KFold
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
+from repository_paths import relative_path
+
 from .config import (
     INCHIANTI_OOF_FOLD_ASSIGNMENT_PATH,
     INCHIANTI_PARTICIPANTS,
@@ -188,7 +190,7 @@ def component_predictions(cohort: pd.DataFrame, cpgs: list[str]) -> pd.DataFrame
     pya.pred.predict_age(
         adata,
         list(OOF_COMPONENTS),
-        dir=str(PYAGING_CACHE_DIR),
+        dir=relative_path(PYAGING_CACHE_DIR),
         batch_size=512,
         clean=True,
         verbose=False,
@@ -468,7 +470,7 @@ def main() -> int:
                 "endpoint": "INTV_MOR: 0 alive/censored; death waves 4, 5, 6",
                 "outer_folds": "fixed formal Figure 4 donor-level OOF assignment",
                 "oof_fold_assignment": {
-                    "path": str(INCHIANTI_OOF_FOLD_ASSIGNMENT_PATH.resolve()),
+                    "path": relative_path(INCHIANTI_OOF_FOLD_ASSIGNMENT_PATH),
                     "assignment_labels_internal": list(range(N_FOLDS)),
                     "output_fold_labels": list(range(1, N_FOLDS + 1)),
                 },

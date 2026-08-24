@@ -8,11 +8,13 @@ import platform
 from pathlib import Path
 from typing import Any, Iterable
 
+from repository_paths import relative_path
+
 
 def file_record(path: Path) -> dict[str, Any]:
     """Describe one immutable workflow input."""
     resolved = path.resolve(strict=True)
-    return {"path": str(path), "bytes": resolved.stat().st_size}
+    return {"path": relative_path(path), "bytes": resolved.stat().st_size}
 
 
 def software_versions(packages: Iterable[str]) -> dict[str, str]:

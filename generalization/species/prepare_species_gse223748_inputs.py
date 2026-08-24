@@ -13,6 +13,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from repository_paths import relative_path
+
 from .species_config import (
     EXPECTED_SAMPLE_COUNTS,
     GESTATION_TABLE,
@@ -197,8 +199,8 @@ def prepare_inputs() -> None:
         json.dumps(
             {
                 "dataset": "GSE223748",
-                "beta_matrix": str(GSE223748_BETA_PATH),
-                "series_metadata": str(GSE223748_SERIES_PATH),
+                "beta_matrix": relative_path(GSE223748_BETA_PATH),
+                "series_metadata": relative_path(GSE223748_SERIES_PATH),
                 "target_transform": "-log(-log((age + gestation)/(maximum_lifespan + gestation)))",
                 "gestation_precision_decimals": GESTATION_DECIMALS,
                 "pooled_rule": "valid non-target species only; all ten target species excluded",

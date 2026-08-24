@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Infer three age models in one external disease dataset and draw a heatmap.
 
-Edit only ``DATASET_PATH``.  Run ``run_biological_age_prediction.py`` first:
-this script loads its fitted BioMeta and direct-CpG baseline artifacts.  The
-baseline artifact is intentionally not bundled because it contains one weight
-per training CpG; no fabricated or truncated baseline weights are substituted.
+Edit only ``DATASET_PATH``. The published BioMetaClock weights are bundled in
+this repository. Run ``run_biological_age_prediction.py`` first only to create
+the direct-CpG baseline artifact, which is intentionally not bundled because
+it contains one weight per training CpG.
 """
 
 from __future__ import annotations
@@ -25,10 +25,13 @@ from matplotlib.colors import LinearSegmentedColormap
 from scipy.stats import ttest_ind
 from sklearn.linear_model import LinearRegression
 
+from repository_paths import relative_path
+
 from .config import EXTERNAL_COMPONENTS
 from .data import numeric_matrix, validate_dnam_feature_names
 from .plotting import LABELS, configure_style, save_vector_pair
 from .provenance import software_versions
+from .published_biometaclock import load_published_biometaclock
 
 # --- Paths: this is the only user-edited raw input ---
 
@@ -125,7 +128,7 @@ def run_pyaging(frame: pd.DataFrame, clocks: list[str]) -> pd.DataFrame:
     pya.pred.predict_age(
         adata,
         clocks,
-        dir=str(PYAGING_CACHE_DIR),
+        dir=relative_path(PYAGING_CACHE_DIR),
         batch_size=512,
         clean=True,
         verbose=False,
@@ -278,7 +281,7 @@ def plot_heatmap(tests: pd.DataFrame) -> None:
 def main() -> int:
     """Load formal artifacts, infer all models, age-correct, test, and plot."""
     frame = read_dataset(DATASET_PATH)
-    biometa, biometa_features = load_trained_artifact("bio_metaclock")
+    biometa, biometa_features = load_published_biometaclock()
     baseline, baseline_features = load_trained_artifact("baseline")
     if biometa_features != list(EXTERNAL_COMPONENTS):
         raise ValueError("BioMeta artifact does not use the canonical ordered 17 components.")
@@ -309,8 +312,9 @@ def main() -> int:
         json.dumps(
             {
                 "models": list(MODEL_ORDER),
-                "biometa_artifact": str(MODEL_DIR / "bio_metaclock.joblib"),
-                "baseline_artifact": str(MODEL_DIR / "baseline.joblib"),
+                "biometa_weights": relative_path(biometa.weights_path),
+                "biometa_metadata": relative_path(biometa.metadata_path),
+                "baseline_artifact": relative_path(MODEL_DIR / "baseline.joblib"),
                 "baseline_features": len(baseline_features),
                 "baseline_features_present": sum(
                     feature in frame.columns for feature in baseline_features

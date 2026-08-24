@@ -4,8 +4,6 @@
 .venv/
 __pycache__/
 *.py[cod]
-.pytest_cache/
-.ruff_cache/
 .mypy_cache/
 .matplotlib/
 
@@ -46,13 +44,6 @@ slurm-*.out
 /biological_age_prediction_and_mortality_analysis/validate_external_disease_outputs.py
 /biological_age_prediction_and_mortality_analysis/enrichment/validate_enrichment_outputs.py
 /intervention_analysis/validate_intervention_volcano.py
-
-# Local-only development tests (not required to reproduce figures)
-/chronological_age_prediction_performance/tests/
-/generalization/tests/
-/chronological_age_prediction_performance/tests/
-/biological_age_prediction_and_mortality_analysis/tests/
-/intervention_analysis/tests/
 
 # Generated per-run provenance sidecars
 *.provenance.json

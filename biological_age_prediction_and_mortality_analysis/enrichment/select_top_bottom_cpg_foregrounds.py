@@ -9,6 +9,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from repository_paths import repo_path
+
 from ..config import ENRICHMENT
 from ..provenance import file_record, write_json
 
@@ -24,9 +26,9 @@ GROUP_BY_MODEL = {"chrono": "chronological", "bio": "biological"}
 def parse_args() -> argparse.Namespace:
     """Parse published selections, union membership, and output paths."""
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--selected-cpgs", type=Path, default=DEFAULT_SELECTIONS)
-    parser.add_argument("--membership", type=Path, default=DEFAULT_MEMBERSHIP)
-    parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT)
+    parser.add_argument("--selected-cpgs", type=repo_path, default=DEFAULT_SELECTIONS)
+    parser.add_argument("--membership", type=repo_path, default=DEFAULT_MEMBERSHIP)
+    parser.add_argument("--output-dir", type=repo_path, default=DEFAULT_OUTPUT)
     return parser.parse_args()
 
 
@@ -103,7 +105,10 @@ def main() -> int:
         raise ValueError("Published ranks must be integers.")
     published["rank"] = published["rank"].astype(int)
     expected_groups = set(GROUP_BY_MODEL.values())
-    if set(published["group"]) != expected_groups or set(published["direction"]) != {"top", "bottom"}:
+    if set(published["group"]) != expected_groups or set(published["direction"]) != {
+        "top",
+        "bottom",
+    }:
         raise ValueError("Published table must contain chronological/biological top/bottom groups.")
     union = pd.read_csv(args.membership)
     if len(union) != 896_980 or union["cpg"].duplicated().any():

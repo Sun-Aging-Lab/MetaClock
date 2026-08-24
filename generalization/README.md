@@ -42,11 +42,6 @@ sbatch generalization/array/GSE184221_methylchip40.sbatch
 ```
 
 `GSE234461_methylchipepic_v1.sbatch` is the corresponding GSE234461 submission.
-A local point can be checked with:
-
-```bash
-python -m generalization.array.GSE184221_methylchip40 --size-index 0
-```
 
 ## Tissue: download, PyAging, prepare, train/test
 
@@ -130,4 +125,3 @@ mean/2.5th/97.5th percentile summary, and four PDF/SVG layouts per dataset:
 Training shards are written
 under `results/generalization/`; figures are written under
 `figures/generalization/`.
-

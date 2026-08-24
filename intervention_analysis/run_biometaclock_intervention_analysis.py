@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
+import importlib.metadata
 import json
 import os
 import platform
@@ -14,10 +16,20 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-os.environ.setdefault(
-    "MPLCONFIGDIR",
-    "/orcd/pool/007/edsun_shared/yncheng/meta_clock_bio/.matplotlib",
+from biological_age_prediction_and_mortality_analysis.published_biometaclock import (
+    load_published_biometaclock,
 )
+from intervention_analysis.paths import (
+    DEFAULT_MATRIX_ROOT,
+    DEFAULT_MODEL_DIR,
+    DEFAULT_PYAGING_DIR,
+    DEFAULT_RESULTS_DIR,
+    PROJECT_ROOT,
+    relative_path,
+    repo_child,
+    repo_path,
+)
+from intervention_analysis.matplotlib_runtime import MPLCONFIGDIR
 
 import matplotlib
 import numpy as np
@@ -28,7 +40,6 @@ from statsmodels.stats.multitest import multipletests
 
 HERE = Path(__file__).resolve().parent
 CONFIG_DIR = HERE / "config"
-DEFAULT_PIPELINE_ROOT = Path("/orcd/pool/007/edsun_shared/yncheng/meta_clock_bio/rejuvenation_dnam")
 REFERENCE_RESULTS = CONFIG_DIR / "valid_interventions_77.csv"
 SELECTION_AUDIT = CONFIG_DIR / "selection_audit_77.csv"
 ACQUISITION_MANIFEST = CONFIG_DIR / "matrix_acquisition_manifest_64.csv"
@@ -56,28 +67,37 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--matrix-root",
-        type=Path,
-        required=True,
-        help="Matrix root; use <fetch-output>/matrices after the fetch entry point.",
+        type=repo_path,
+        default=DEFAULT_MATRIX_ROOT,
+        metavar="REPO_RELATIVE_PATH",
+        help=(
+            "Repository-relative matrix directory produced by the fetch entry point "
+            "(default: data/intervention/geo_fetch_77/matrices)."
+        ),
     )
-    parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument(
-        "--pipeline-root",
-        type=Path,
-        default=DEFAULT_PIPELINE_ROOT,
-        help="Directory containing the established per-GSE runner and volcano workflow.",
+        "--output-dir",
+        type=repo_path,
+        default=DEFAULT_RESULTS_DIR,
+        metavar="REPO_RELATIVE_PATH",
+        help=(
+            "Repository-relative results directory "
+            "(default: results/intervention/biometaclock_77)."
+        ),
     )
     parser.add_argument(
         "--model-dir",
-        type=Path,
-        default=None,
-        help="Frozen BioMetaClock model directory; defaults under --pipeline-root.",
+        type=repo_path,
+        default=DEFAULT_MODEL_DIR,
+        metavar="REPO_RELATIVE_PATH",
+        help="Repository-relative directory containing the tracked BioMetaClock weights.",
     )
     parser.add_argument(
         "--pyaging-dir",
-        type=Path,
-        default=None,
-        help="PyAging cache directory; defaults beside --pipeline-root.",
+        type=repo_path,
+        default=DEFAULT_PYAGING_DIR,
+        metavar="REPO_RELATIVE_PATH",
+        help="Repository-relative cache for PyAging component clocks.",
     )
     parser.add_argument("--pyaging-batch-size", type=int, default=2048)
     parser.add_argument("--workers", type=int, default=1)
@@ -91,18 +111,30 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Rerun completed GSE shards in this output directory.",
     )
-    parser.add_argument("--dry-run", action="store_true")
     return parser.parse_args()
 
 
 def write_json_atomic(payload: dict[str, Any], path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(path.suffix + ".tmp")
-    temporary.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    temporary.write_text(
+        json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
     temporary.replace(path)
 
 
-def validate_inputs(args: argparse.Namespace) -> tuple[pd.DataFrame, pd.DataFrame, Path]:
+def sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def validate_inputs(
+    args: argparse.Namespace,
+) -> tuple[pd.DataFrame, pd.DataFrame, Path]:
+    model, _ = load_published_biometaclock(args.model_dir)
     reference = pd.read_csv(REFERENCE_RESULTS)
     acquisition = pd.read_csv(ACQUISITION_MANIFEST, dtype=str)
     if len(reference) != 77 or reference["gse_id"].nunique() != 64:
@@ -113,10 +145,20 @@ def validate_inputs(args: argparse.Namespace) -> tuple[pd.DataFrame, pd.DataFram
         raise ValueError("Acquisition manifest must contain exactly 64 unique GSE")
     if set(reference["gse_id"]) != set(acquisition["gse_id"]):
         raise ValueError("Reference and matrix acquisition GSE sets differ")
+    selected_gses = (
+        set(args.only_gse) if args.only_gse else set(acquisition["gse_id"].astype(str))
+    )
+    unknown = sorted(selected_gses.difference(acquisition["gse_id"].astype(str)))
+    if unknown:
+        raise ValueError(f"Unknown frozen GSE accessions: {unknown}")
     for row in acquisition.itertuples(index=False):
-        path = args.matrix_root / str(row.matrix_file)
+        if str(row.gse_id) not in selected_gses:
+            continue
+        path = repo_child(args.matrix_root, str(row.matrix_file))
         if not path.is_file():
-            raise FileNotFoundError(f"Missing matrix for {row.gse_id}: {path}")
+            raise FileNotFoundError(
+                f"Missing matrix for {row.gse_id}: {relative_path(path)}"
+            )
         if path.stat().st_size != int(row.expected_size_bytes):
             raise ValueError(
                 f"{row.gse_id}: matrix size {path.stat().st_size} differs from "
@@ -125,11 +167,8 @@ def validate_inputs(args: argparse.Namespace) -> tuple[pd.DataFrame, pd.DataFram
     for config in BRANCH_CONFIG.values():
         for key in ("sample_manifest", "matrix_manifest"):
             if not config[key].is_file():
-                raise FileNotFoundError(config[key])
-    model_path = args.model_dir / "bio_metaclock.joblib"
-    if not model_path.is_file():
-        raise FileNotFoundError(model_path)
-    return reference, acquisition, model_path.resolve()
+                raise FileNotFoundError(relative_path(config[key]))
+    return reference, acquisition, model.weights_path
 
 
 def expected_ids_by_gse(reference: pd.DataFrame) -> dict[str, set[str]]:
@@ -139,7 +178,9 @@ def expected_ids_by_gse(reference: pd.DataFrame) -> dict[str, set[str]]:
     }
 
 
-def completed_shard_is_valid(shard_dir: Path, expected_ids: set[str], model_path: Path) -> bool:
+def completed_shard_is_valid(
+    shard_dir: Path, expected_ids: set[str], model_path: Path
+) -> bool:
     summary_path = shard_dir / "run_summary.json"
     results_path = shard_dir / "comparison_results.csv"
     if not summary_path.is_file() or not results_path.is_file():
@@ -149,8 +190,12 @@ def completed_shard_is_valid(shard_dir: Path, expected_ids: set[str], model_path
         results = pd.read_csv(results_path, dtype=str)
     except Exception:
         return False
+    metadata_path = model_path.parent / "biometaclock_672_participants_metadata.json"
     return (
-        Path(str(summary.get("model", ""))).resolve() == model_path
+        str(summary.get("model_weights", "")) == relative_path(model_path)
+        and str(summary.get("model_metadata", "")) == relative_path(metadata_path)
+        and str(summary.get("model_weights_sha256", "")) == sha256(model_path)
+        and str(summary.get("model_metadata_sha256", "")) == sha256(metadata_path)
         and expected_ids.issubset(set(results["comparison_id"]))
         and results["comparison_id"].is_unique
         and bool(summary.get("beta_distribution_qc_applied"))
@@ -171,24 +216,24 @@ def run_one_gse(
     shard_dir.mkdir(parents=True, exist_ok=True)
     command = [
         sys.executable,
-        str(args.pipeline_root / "run_geo_biometaclock_gse.py"),
+        "-m",
+        "intervention_analysis.run_geo_biometaclock_gse",
         "--sample-manifest",
-        str(config["sample_manifest"]),
+        relative_path(config["sample_manifest"]),
         "--matrix-manifest",
-        str(config["matrix_manifest"]),
+        relative_path(config["matrix_manifest"]),
         "--gse",
         gse,
         "--matrix-root",
-        str(args.matrix_root),
+        relative_path(args.matrix_root),
         "--output-dir",
-        str(shard_dir),
+        relative_path(shard_dir),
         "--model-dir",
-        str(args.model_dir),
+        relative_path(args.model_dir),
         "--pyaging-dir",
-        str(args.pyaging_dir),
+        relative_path(args.pyaging_dir),
         "--pyaging-batch-size",
         str(args.pyaging_batch_size),
-        "--omit-model-hash",
     ]
     environment = os.environ.copy()
     for variable in (
@@ -204,6 +249,7 @@ def run_one_gse(
         capture_output=True,
         check=False,
         env=environment,
+        cwd=PROJECT_ROOT,
     )
     (shard_dir / "runner.stdout.log").write_text(completed.stdout, encoding="utf-8")
     (shard_dir / "runner.stderr.log").write_text(completed.stderr, encoding="utf-8")
@@ -247,7 +293,9 @@ def finalize(
     context_results = pd.concat(context_result_parts, ignore_index=True)
     if not context_results["comparison_id"].is_unique:
         raise ValueError("Full GSE-context comparison IDs are not unique")
-    context_results.to_csv(args.output_dir / "all_gse_context_comparison_results.csv", index=False)
+    context_results.to_csv(
+        args.output_dir / "all_gse_context_comparison_results.csv", index=False
+    )
     results = context_results.loc[
         context_results["comparison_id"].isin(set(reference["comparison_id"]))
     ].copy()
@@ -305,25 +353,39 @@ def finalize(
     args.output_dir.mkdir(parents=True, exist_ok=True)
     results_path = args.output_dir / "results_77_interventions.csv"
     results.to_csv(results_path, index=False)
-    comparison.to_csv(args.output_dir / "frozen_reproduction_comparison.csv", index=False)
+    comparison.to_csv(
+        args.output_dir / "frozen_reproduction_comparison.csv", index=False
+    )
 
     volcano_stem = args.output_dir / "volcano" / "geo_biometaclock_volcano_fdr_5_20"
     plot_command = [
         sys.executable,
-        str(args.pipeline_root / "plot_geo_biometaclock_volcano_fdr.py"),
+        "-m",
+        "intervention_analysis.plot_geo_biometaclock_volcano_fdr",
         "--results",
-        str(results_path),
+        relative_path(results_path),
         "--selection-audit",
-        str(SELECTION_AUDIT),
+        relative_path(SELECTION_AUDIT),
         "--output-stem",
-        str(volcano_stem),
+        relative_path(volcano_stem),
     ]
-    plotted = subprocess.run(plot_command, text=True, capture_output=True, check=False)
-    (args.output_dir / "volcano.stdout.log").write_text(plotted.stdout, encoding="utf-8")
-    (args.output_dir / "volcano.stderr.log").write_text(plotted.stderr, encoding="utf-8")
+    plotted = subprocess.run(
+        plot_command,
+        text=True,
+        capture_output=True,
+        check=False,
+        cwd=PROJECT_ROOT,
+    )
+    (args.output_dir / "volcano.stdout.log").write_text(
+        plotted.stdout, encoding="utf-8"
+    )
+    (args.output_dir / "volcano.stderr.log").write_text(
+        plotted.stderr, encoding="utf-8"
+    )
     if plotted.returncode != 0:
         raise RuntimeError(
-            f"Volcano plotting failed; inspect {args.output_dir / 'volcano.stderr.log'}"
+            "Volcano plotting failed; inspect "
+            f"{relative_path(args.output_dir / 'volcano.stderr.log')}"
         )
 
     tests = results["test"].value_counts().to_dict()
@@ -338,7 +400,14 @@ def finalize(
         "raw_p_lt_0_05": int(results["two_sided_p_value"].lt(0.05).sum()),
         "bh_q_le_0_05": int(q_values.le(0.05).sum()),
         "bh_q_le_0_20": int(q_values.le(0.20).sum()),
-        "model_path": str(model_path),
+        "model_weights": relative_path(model_path),
+        "model_metadata": relative_path(
+            model_path.parent / "biometaclock_672_participants_metadata.json"
+        ),
+        "model_weights_sha256": sha256(model_path),
+        "model_metadata_sha256": sha256(
+            model_path.parent / "biometaclock_672_participants_metadata.json"
+        ),
         "beta_distribution_qc": "strict_original_thresholds",
         "bh_method": "statsmodels.stats.multitest.multipletests(method='fdr_bh')",
         "bh_crosscheck": "scipy.stats.false_discovery_control(method='bh')",
@@ -351,9 +420,9 @@ def finalize(
                 "bh_q_value_after_dataset_exclusion",
             )
         },
-        "results": str(results_path.resolve()),
-        "volcano_pdf": str(volcano_stem.with_suffix(".pdf").resolve()),
-        "volcano_svg": str(volcano_stem.with_suffix(".svg").resolve()),
+        "results": relative_path(results_path),
+        "volcano_pdf": relative_path(volcano_stem.with_suffix(".pdf")),
+        "volcano_svg": relative_path(volcano_stem.with_suffix(".svg")),
         "run_records": run_records,
         "software": {
             "python": platform.python_version(),
@@ -362,6 +431,10 @@ def finalize(
             "scipy": scipy.__version__,
             "statsmodels": statsmodels.__version__,
             "matplotlib": matplotlib.__version__,
+            "anndata": importlib.metadata.version("anndata"),
+            "pyaging": importlib.metadata.version("pyaging"),
+            "scikit-learn": importlib.metadata.version("scikit-learn"),
+            "torch": importlib.metadata.version("torch"),
         },
     }
 
@@ -370,20 +443,6 @@ def main() -> int:
     args = parse_args()
     if args.workers < 1 or args.pyaging_batch_size < 1:
         raise ValueError("Worker count and batch size must be positive")
-    args.pipeline_root = args.pipeline_root.resolve()
-    if args.model_dir is None:
-        args.model_dir = args.pipeline_root / (
-            "models/participant_level/external_all672_without_dnamfitage"
-        )
-    if args.pyaging_dir is None:
-        args.pyaging_dir = args.pipeline_root.parent / "pyaging_data"
-    helper_paths = [
-        args.pipeline_root / "run_geo_biometaclock_gse.py",
-        args.pipeline_root / "plot_geo_biometaclock_volcano_fdr.py",
-    ]
-    missing_helpers = [str(path) for path in helper_paths if not path.is_file()]
-    if missing_helpers:
-        raise FileNotFoundError(f"Missing intervention pipeline helpers: {missing_helpers}")
     reference, acquisition, model_path = validate_inputs(args)
     all_gses = list(acquisition["gse_id"])
     selected_gses = all_gses
@@ -394,20 +453,23 @@ def main() -> int:
             raise ValueError(f"Unknown frozen GSE accessions: {unknown}")
         selected_gses = [gse for gse in all_gses if gse in requested]
     plan = {
-        "status": "dry_run" if args.dry_run else "running",
         "n_frozen_interventions": 77,
         "n_frozen_gse": 64,
         "n_selected_gse": len(selected_gses),
-        "matrix_root": str(args.matrix_root.resolve()),
-        "output_dir": str(args.output_dir.resolve()),
-        "model_path": str(model_path),
-        "pipeline_root": str(args.pipeline_root),
+        "matrix_root": relative_path(args.matrix_root),
+        "output_dir": relative_path(args.output_dir),
+        "model_weights": relative_path(model_path),
+        "model_metadata": relative_path(
+            args.model_dir / "biometaclock_672_participants_metadata.json"
+        ),
+        "model_weights_sha256": sha256(model_path),
+        "model_metadata_sha256": sha256(
+            args.model_dir / "biometaclock_672_participants_metadata.json"
+        ),
+        "pyaging_dir": relative_path(args.pyaging_dir),
+        "matplotlib_cache": relative_path(MPLCONFIGDIR),
         "workers": args.workers,
     }
-    if args.dry_run:
-        print(json.dumps(plan, indent=2, sort_keys=True))
-        return 0
-
     ids_by_gse = expected_ids_by_gse(reference)
     branch_by_gse = dict(zip(acquisition["gse_id"], acquisition["analysis_branch"]))
     run_records: list[dict[str, Any]] = []
@@ -426,9 +488,16 @@ def main() -> int:
         for future in as_completed(futures):
             run_records.append(future.result())
     run_records.sort(key=lambda row: int(str(row["gse_id"])[3:]))
-    failures = [row for row in run_records if row["status"] not in {"completed", "cached"}]
+    failures = [
+        row for row in run_records if row["status"] not in {"completed", "cached"}
+    ]
     if failures:
-        summary = {**plan, "status": "failed", "failures": failures, "run_records": run_records}
+        summary = {
+            **plan,
+            "status": "failed",
+            "failures": failures,
+            "run_records": run_records,
+        }
         write_json_atomic(summary, args.output_dir / "analysis_summary.json")
         print(json.dumps(summary, indent=2, sort_keys=True))
         return 1

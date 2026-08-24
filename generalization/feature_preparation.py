@@ -11,6 +11,8 @@ import numpy as np
 import pandas as pd
 from sklearn.feature_selection import SelectKBest, mutual_info_regression
 
+from repository_paths import relative_path
+
 from .datasets import CHRONOLOGICAL_COMPONENTS
 from .geo_data import (
     GeoDatasetSpec,
@@ -45,9 +47,7 @@ def _select_cpgs(
         mi_columns = list(numeric.columns)
     else:
         selector = SelectKBest(
-            lambda x, y: mutual_info_regression(
-                x, y, n_neighbors=3, random_state=0, n_jobs=-1
-            ),
+            lambda x, y: mutual_info_regression(x, y, n_neighbors=3, random_state=0, n_jobs=-1),
             k=k_mi,
         )
         selector.fit(numeric, target)
@@ -123,8 +123,8 @@ def prepare_dataset_inputs(
             "dataset": spec.gse,
             "domain": spec.domain,
             "created_utc": datetime.now(timezone.utc).isoformat(),
-            "beta_age_input": str(beta_path.resolve()),
-            "component_input": str(component_path.resolve()),
+            "beta_age_input": relative_path(beta_path),
+            "component_input": relative_path(component_path),
             "samples": len(direct),
             "input_cpgs": beta_age.shape[1],
             "mutual_information_features": min(mi_features, beta_age.shape[1]),
@@ -135,7 +135,11 @@ def prepare_dataset_inputs(
                 "random_state": 0,
                 "n_jobs": -1,
             },
-            "mrmr": {"implementation": "mrmr-selection", "K": len(selected), "n_jobs": -1},
+            "mrmr": {
+                "implementation": "mrmr-selection",
+                "K": len(selected),
+                "n_jobs": -1,
+            },
             "missing_beta_policy_for_selection": "zero_imputation (Figure 3 legacy policy)",
             "feature_selection_numeric_dtype": "float32 (Figure 3 legacy policy)",
             "runtime": {

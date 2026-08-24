@@ -24,6 +24,8 @@ from typing import Iterable
 import numpy as np
 import pandas as pd
 
+from repository_paths import ensure_repo_path
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_DATA_ROOT = PROJECT_ROOT / "data" / "generalization"
 ARRAY_ID_PATTERN = re.compile(r"(\d+_R\d+C\d+)")
@@ -163,7 +165,7 @@ def select_datasets(domain: str, requested: Iterable[str] | None) -> tuple[GeoDa
 
 def dataset_dir(data_root: Path, spec: GeoDatasetSpec) -> Path:
     """Return the deterministic generated-data directory for one dataset."""
-    return data_root.expanduser().resolve() / spec.domain / spec.gse
+    return ensure_repo_path(data_root) / spec.domain / spec.gse
 
 
 def atomic_json(payload: dict[str, object], output: Path) -> None:

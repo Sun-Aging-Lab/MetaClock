@@ -31,6 +31,8 @@ from sklearn.model_selection import KFold
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
+from repository_paths import relative_path
+
 from .config import (
     EXTERNAL_COMPONENTS,
     INCHIANTI_COMPLETE_CASE_SAMPLES,
@@ -183,7 +185,7 @@ def run_pyaging_components(frame: pd.DataFrame, cpgs: list[str]) -> pd.DataFrame
     pya.pred.predict_age(
         adata,
         list(OOF_COMPONENTS),
-        dir=str(PYAGING_CACHE_DIR),
+        dir=relative_path(PYAGING_CACHE_DIR),
         batch_size=512,
         clean=True,
         verbose=False,
@@ -473,7 +475,7 @@ def main() -> int:
                 "oof_prediction_rows": "all complete-case DNAm samples",
                 "metric_level": "participant mean of held-out DNAm predictions",
                 "oof_fold_assignment": {
-                    "path": str(INCHIANTI_OOF_FOLD_ASSIGNMENT_PATH.resolve()),
+                    "path": relative_path(INCHIANTI_OOF_FOLD_ASSIGNMENT_PATH),
                     "fold_labels": list(range(N_FOLDS)),
                 },
                 "full_refit": refit,

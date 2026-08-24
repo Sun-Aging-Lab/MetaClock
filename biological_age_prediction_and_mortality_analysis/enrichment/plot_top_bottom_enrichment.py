@@ -18,6 +18,8 @@ import pandas as pd
 from matplotlib.colors import to_rgba
 from matplotlib.lines import Line2D
 
+from repository_paths import repo_path
+
 from ..config import ENRICHMENT
 from ..plotting import configure_style as configure_manuscript_style
 
@@ -122,7 +124,8 @@ def plot_pair(
             result_path(results_dir, model, library.key, direction)
         )
     max_x = max(
-        1.55, max(float(table["minus_log10_fdr"].max()) for table in tables.values()) + 0.22
+        1.55,
+        max(float(table["minus_log10_fdr"].max()) for table in tables.values()) + 0.22,
     )
     max_hits = max(float(table["observed_region_hits"].max()) for table in tables.values())
     figure, axes = plt.subplots(1, 2, figsize=(150 / 25.4, 75 / 25.4), sharex=True)
@@ -202,7 +205,10 @@ def plot_pair(
         columnspacing=1.0,
     )
     figure.suptitle(
-        f"{MODEL_LABELS[model]}: {library.label}", fontsize=7, fontweight="bold", y=0.955
+        f"{MODEL_LABELS[model]}: {library.label}",
+        fontsize=7,
+        fontweight="bold",
+        y=0.955,
     )
     model_name = "chronological" if model == "chrono" else "biological"
     library_name = {
@@ -221,8 +227,8 @@ def plot_pair(
 def main() -> int:
     """Render all eight chronological/biological enrichment panels."""
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--results-dir", type=Path, default=DEFAULT_RESULTS)
-    parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT)
+    parser.add_argument("--results-dir", type=repo_path, default=DEFAULT_RESULTS)
+    parser.add_argument("--output-dir", type=repo_path, default=DEFAULT_OUTPUT)
     args = parser.parse_args()
     configure_style()
     for library in LIBRARIES:

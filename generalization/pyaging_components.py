@@ -12,6 +12,8 @@ from typing import Callable
 import numpy as np
 import pandas as pd
 
+from repository_paths import ensure_repo_path, relative_path
+
 from .datasets import CHRONOLOGICAL_COMPONENTS
 from .geo_data import (
     GeoDatasetSpec,
@@ -60,7 +62,7 @@ def _pyaging_runner(
             pya.pred.predict_age(
                 adata,
                 list(clocks),
-                dir=str(cache_dir),
+                dir=relative_path(cache_dir),
                 batch_size=batch_size,
                 clean=True,
                 verbose=False,
@@ -119,7 +121,7 @@ def predict_dataset_components(
     missing_values = int(beta.isna().sum().sum())
     prediction_runner = runner or _pyaging_runner
     prediction, diagnostics = prediction_runner(
-        beta, CHRONOLOGICAL_COMPONENTS, cache_dir.expanduser().resolve(), batch_size
+        beta, CHRONOLOGICAL_COMPONENTS, ensure_repo_path(cache_dir), batch_size
     )
     prediction.index = prediction.index.astype(str)
     prediction = prediction.reindex(beta.index)
@@ -133,13 +135,13 @@ def predict_dataset_components(
         "dataset": spec.gse,
         "domain": spec.domain,
         "created_utc": datetime.now(timezone.utc).isoformat(),
-        "beta_age_input": str(beta_path.resolve()),
+        "beta_age_input": relative_path(beta_path),
         "samples": len(prediction),
         "components": list(CHRONOLOGICAL_COMPONENTS),
         "batch_size": batch_size,
         "input_missing_beta_values": missing_values,
         "input_missing_beta_policy": "zero_imputation_before_PyAging (Figure 3 legacy policy)",
-        "model_cache": str(cache_dir.expanduser().resolve()),
+        "model_cache": relative_path(cache_dir),
         "runtime": {"python": platform.python_version()},
         **diagnostics,
     }

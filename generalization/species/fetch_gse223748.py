@@ -12,6 +12,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from urllib.request import Request, urlopen
 
+from repository_paths import relative_path
+
 from .species_config import (
     GSE223748_BETA_PATH,
     GSE223748_DOWNLOAD_DIR,
@@ -63,7 +65,7 @@ def download_once(url: str, destination: Path) -> dict[str, object]:
         return {
             "url": url,
             "filename": destination.name,
-            "local_path": str(destination.resolve()),
+            "local_path": relative_path(destination),
             "size_bytes": destination.stat().st_size,
             "status": "reused",
         }
@@ -114,7 +116,7 @@ def download_once(url: str, destination: Path) -> dict[str, object]:
     return {
         "url": url,
         "filename": destination.name,
-        "local_path": str(destination.resolve()),
+        "local_path": relative_path(destination),
         "size_bytes": destination.stat().st_size,
         "status": "downloaded",
         **response_metadata,
