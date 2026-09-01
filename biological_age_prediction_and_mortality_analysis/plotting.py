@@ -23,7 +23,7 @@ FONT_FILES = (
 )
 
 LABELS = {
-    "bio_metaclock": "BioMeta",
+    "bio_metaclock": "MetaClock-biological",
     "baseline": "Baseline",
     "dnamphenoage": "DNAm\nPheno",
     "clinical_phenoage": "PhenoAge",
