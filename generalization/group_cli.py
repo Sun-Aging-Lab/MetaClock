@@ -29,6 +29,7 @@ def _selection(parser: argparse.ArgumentParser, domain: str) -> None:
 
 
 def download_main(domain: str) -> int:
+    """Run the shared download and normalization CLI for one domain."""
     parser = argparse.ArgumentParser(
         description=f"Download and normalize Figure 3 {domain} GEO data"
     )
@@ -45,6 +46,7 @@ def download_main(domain: str) -> int:
 
 
 def prediction_main(domain: str) -> int:
+    """Run the shared component-clock prediction CLI for one domain."""
     parser = argparse.ArgumentParser(description=f"Run 16 PyAging clocks for Figure 3 {domain}")
     _selection(parser, domain)
     parser.add_argument("--cache-dir", type=repo_path, default=DEFAULT_CACHE)
@@ -65,6 +67,7 @@ def prediction_main(domain: str) -> int:
 
 
 def preparation_main(domain: str) -> int:
+    """Run the shared direct and component input-preparation CLI for one domain."""
     parser = argparse.ArgumentParser(description=f"Prepare Figure 3 {domain} training inputs")
     _selection(parser, domain)
     parser.add_argument("--cache-dir", type=repo_path, default=DEFAULT_CACHE)
@@ -95,6 +98,7 @@ def training_main(
     *,
     fixed_dataset: str | None = None,
 ) -> int:
+    """Run one configured model-training size point from CLI or Slurm input."""
     config = GeneralizationConfig()
     parser = argparse.ArgumentParser(description=description)
     if fixed_dataset is None:

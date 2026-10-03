@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Train five-fold OOF age models and draw age-corrected KM curves.
 
-Edit only ``DATASET_PATH``.  The combined InCHIANTI table must include the
-biological-age columns/CpGs and ``INTV_MOR``: wave 0 is alive/censored and
-waves 4, 5, and 6 are deaths. One deterministic baseline DNAm sample is used
+Run ``prepare_inchianti_dataset`` first; ``DATASET_PATH`` points to its output.
+The combined InCHIANTI table must include the biological-age columns/CpGs
+and ``INTV_MOR``: wave 0 is alive/censored and waves 4, 5, and 6 are deaths. One deterministic baseline DNAm sample is used
 per participant and mapped to the fixed formal Figure 4 OOF assignment.
 """
 
@@ -44,7 +44,7 @@ from .data import (
 from .plotting import LABELS, clean_axis, configure_style, save_vector_pair
 from .provenance import software_versions
 
-# --- Paths: this is the only user-edited input ---
+# --- Repository-local generated input, outputs, and cache ---
 
 DATASET_PATH = (
     Path(__file__).resolve().parent

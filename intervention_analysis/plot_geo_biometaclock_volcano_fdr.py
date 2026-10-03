@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import math
 import platform
 from pathlib import Path
@@ -36,6 +37,7 @@ INTERVENTION_LABEL_FONT_SIZE = 7.5
 OUTLINE_WIDTH_PT = 0.2
 
 FDR_COLUMN = "bh_q_value_after_dataset_exclusion"
+COMBINED_FDR_COLUMN = "combined_bh_q_value"
 EFFECT_COLUMN = "mean_diff_experiment_minus_control"
 
 # Curated short labels for the interventions passing FDR 20% in this analysis.
@@ -48,6 +50,12 @@ SHORT_INTERVENTION_LABELS = {
     "curated_1fa2b9d81d6ea894": "FAE",
 }
 
+COMBINED_SHORT_INTERVENTION_LABELS = {
+    **{f"geo::{key}": value for key, value in SHORT_INTERVENTION_LABELS.items()},
+    "translage::GSE217633": "Antiretroviral therapy",
+    "translage::GSE191297 (6 weeks)": "Anti-TNF therapy 1b",
+}
+
 # Point-specific offsets keep the five requested labels legible on a 110 x 60 mm
 # canvas while preserving a direct connector to each observation.
 LABEL_LAYOUT = {
@@ -58,40 +66,108 @@ LABEL_LAYOUT = {
     "curated_1fa2b9d81d6ea894": (-5, 8, "right", "bottom"),
 }
 
+COMBINED_LABEL_LAYOUT = {
+    **{f"geo::{key}": value for key, value in LABEL_LAYOUT.items()},
+    "geo::curated_1fc35799c70a1f70": (5, -4, "left", "top"),
+    "geo::curated_6ac8603ac6e44a0e": (5, 8, "left", "bottom"),
+    "translage::GSE217633": (5, -4, "left", "top"),
+    "translage::GSE191297 (6 weeks)": (-5, 18, "right", "bottom"),
+}
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--results", type=repo_path, required=True)
-    parser.add_argument("--selection-audit", type=repo_path, required=True)
+    parser.add_argument("--selection-audit", type=repo_path)
     parser.add_argument("--output-stem", type=repo_path, required=True)
+    parser.add_argument(
+        "--combined-geo-translage",
+        action="store_true",
+        help="Read the audited combined GEO + TranslAGE result schema.",
+    )
+    parser.add_argument(
+        "--axis-reference-results",
+        type=repo_path,
+        help="Optional GEO-only result table used only to preserve the original axes.",
+    )
+    parser.add_argument(
+        "--audit-json",
+        type=repo_path,
+        help="Optional audit path; defaults beside the plot output.",
+    )
     return parser.parse_args()
 
 
-def validate_and_annotate(results_path: Path, audit_path: Path) -> pd.DataFrame:
+def validate_and_annotate(
+    results_path: Path,
+    audit_path: Path | None,
+    *,
+    combined_geo_translage: bool = False,
+) -> pd.DataFrame:
+    """Validate the explicitly selected result schema and assign FDR categories."""
     frame = pd.read_csv(results_path)
+    if combined_geo_translage:
+        required = {
+            "family_test_id",
+            "source",
+            "source_dataset_id",
+            "public_id",
+            "comparison_id",
+            "intervention",
+            COMBINED_FDR_COLUMN,
+            EFFECT_COLUMN,
+        }
+        missing = required.difference(frame.columns)
+        if missing:
+            raise KeyError(f"Combined results are missing columns: {sorted(missing)}")
+        if frame["family_test_id"].duplicated().any():
+            raise ValueError("Combined results contain duplicate family_test_id values")
+        frame = frame.copy()
+        frame["comparison_id"] = frame["family_test_id"].astype(str)
+        frame["gse_id"] = frame["source_dataset_id"].astype(str)
+        frame["intervention_label"] = frame["intervention"].astype(str)
+        frame[FDR_COLUMN] = frame[COMBINED_FDR_COLUMN]
+        short_labels = COMBINED_SHORT_INTERVENTION_LABELS
+    else:
+        if audit_path is None:
+            raise ValueError("--selection-audit is required for GEO-only results")
+        short_labels = SHORT_INTERVENTION_LABELS
+        required = {"comparison_id", "gse_id", EFFECT_COLUMN, FDR_COLUMN}
+        missing = required.difference(frame.columns)
+        if missing:
+            raise KeyError(f"Results are missing columns: {sorted(missing)}")
+        if frame["comparison_id"].duplicated().any():
+            raise ValueError("Results contain duplicate comparison_id values")
+
+        audit = pd.read_csv(audit_path)
+        audit_required = {"comparison_id", "intervention_label", "selected"}
+        audit_missing = audit_required.difference(audit.columns)
+        if audit_missing:
+            raise KeyError(
+                f"Selection audit is missing columns: {sorted(audit_missing)}"
+            )
+        selected = audit["selected"]
+        if selected.dtype != bool:
+            selected = selected.astype(str).str.lower().eq("true")
+        audit = audit.loc[selected, ["comparison_id", "intervention_label"]]
+        if audit["comparison_id"].duplicated().any():
+            raise ValueError(
+                "Selection audit contains duplicate selected comparison IDs"
+            )
+
+        frame = frame.merge(
+            audit, on="comparison_id", how="left", validate="one_to_one"
+        )
+        if frame["intervention_label"].isna().any():
+            missing_ids = frame.loc[frame["intervention_label"].isna(), "comparison_id"]
+            raise ValueError(f"Missing intervention labels for: {sorted(missing_ids)}")
+
     required = {"comparison_id", "gse_id", EFFECT_COLUMN, FDR_COLUMN}
     missing = required.difference(frame.columns)
     if missing:
         raise KeyError(f"Results are missing columns: {sorted(missing)}")
     if frame["comparison_id"].duplicated().any():
         raise ValueError("Results contain duplicate comparison_id values")
-
-    audit = pd.read_csv(audit_path)
-    audit_required = {"comparison_id", "intervention_label", "selected"}
-    audit_missing = audit_required.difference(audit.columns)
-    if audit_missing:
-        raise KeyError(f"Selection audit is missing columns: {sorted(audit_missing)}")
-    selected = audit["selected"]
-    if selected.dtype != bool:
-        selected = selected.astype(str).str.lower().eq("true")
-    audit = audit.loc[selected, ["comparison_id", "intervention_label"]]
-    if audit["comparison_id"].duplicated().any():
-        raise ValueError("Selection audit contains duplicate selected comparison IDs")
-
-    frame = frame.merge(audit, on="comparison_id", how="left", validate="one_to_one")
-    if frame["intervention_label"].isna().any():
-        missing_ids = frame.loc[frame["intervention_label"].isna(), "comparison_id"]
-        raise ValueError(f"Missing intervention labels for: {sorted(missing_ids)}")
 
     frame[EFFECT_COLUMN] = pd.to_numeric(frame[EFFECT_COLUMN], errors="raise")
     frame[FDR_COLUMN] = pd.to_numeric(frame[FDR_COLUMN], errors="raise")
@@ -109,16 +185,14 @@ def validate_and_annotate(results_path: Path, audit_path: Path) -> pd.DataFrame:
         default="FDR > 20%",
     )
     label_ids = set(frame.loc[frame[FDR_COLUMN].le(0.20), "comparison_id"])
-    missing_short_labels = label_ids.difference(SHORT_INTERVENTION_LABELS)
-    extra_short_labels = set(SHORT_INTERVENTION_LABELS).difference(label_ids)
+    missing_short_labels = label_ids.difference(short_labels)
+    extra_short_labels = set(short_labels).difference(label_ids)
     if missing_short_labels or extra_short_labels:
         raise ValueError(
             "Curated short-label mapping does not exactly match FDR <= 20% results; "
             f"missing={sorted(missing_short_labels)}, extra={sorted(extra_short_labels)}"
         )
-    frame["short_intervention_label"] = frame["comparison_id"].map(
-        SHORT_INTERVENTION_LABELS
-    )
+    frame["short_intervention_label"] = frame["comparison_id"].map(short_labels)
     return frame
 
 
@@ -146,7 +220,13 @@ def configure_style() -> None:
     )
 
 
-def draw_volcano(frame: pd.DataFrame, output_stem: Path) -> None:
+def draw_volcano(
+    frame: pd.DataFrame,
+    output_stem: Path,
+    *,
+    label_layout: dict[str, tuple[int, int, str, str]] = LABEL_LAYOUT,
+    axis_reference: pd.DataFrame | None = None,
+) -> dict[str, object]:
     configure_style()
     width_in, height_in = (value / MM_PER_INCH for value in FIGURE_MM)
     figure, axis = plt.subplots(figsize=(width_in, height_in))
@@ -209,18 +289,19 @@ def draw_volcano(frame: pd.DataFrame, output_stem: Path) -> None:
     axis.spines["left"].set_color(TEXT_COLOR)
     axis.spines["bottom"].set_color(TEXT_COLOR)
 
-    x_min = float(frame[EFFECT_COLUMN].min())
-    x_max = float(frame[EFFECT_COLUMN].max())
+    axis_frame = frame if axis_reference is None else axis_reference
+    x_min = float(axis_frame[EFFECT_COLUMN].min())
+    x_max = float(axis_frame[EFFECT_COLUMN].max())
     x_padding = max(0.8, 0.075 * (x_max - x_min))
     axis.set_xlim(x_min - x_padding, x_max + x_padding)
-    y_max = float(frame["minus_log10_fdr"].max())
+    y_max = float(axis_frame["minus_log10_fdr"].max())
     axis.set_ylim(-1.0, y_max * 1.075)
     # Preserve the plotting range below zero without displaying a -1.0 tick.
     axis.set_yticks(np.arange(0.0, y_max * 1.075 + 0.01, 2.5))
 
     for row in frame.loc[frame[FDR_COLUMN].le(0.20)].itertuples(index=False):
         comparison_id = str(row.comparison_id)
-        dx, dy, horizontal_alignment, vertical_alignment = LABEL_LAYOUT[comparison_id]
+        dx, dy, horizontal_alignment, vertical_alignment = label_layout[comparison_id]
         category = str(row.fdr_category)
         color = FDR_5_LINE_COLOR if category == "FDR ≤ 5%" else FDR_20_LINE_COLOR
         axis.annotate(
@@ -308,27 +389,67 @@ def draw_volcano(frame: pd.DataFrame, output_stem: Path) -> None:
         metadata={"Title": "", "Description": metadata["Subject"]},
     )
     plt.close(figure)
+    return {
+        "canvas_mm": list(FIGURE_MM),
+        "xlim": [x_min - x_padding, x_max + x_padding],
+        "ylim": [-1.0, y_max * 1.075],
+        "yticks": np.arange(0.0, y_max * 1.075 + 0.01, 2.5).tolist(),
+    }
 
 
 def main() -> int:
     args = parse_args()
-    frame = validate_and_annotate(args.results, args.selection_audit)
-    draw_volcano(frame, args.output_stem)
-    counts = frame["fdr_category"].value_counts().to_dict()
-    print(
-        {
-            "python": platform.python_version(),
-            "matplotlib": matplotlib.__version__,
-            "pandas": pd.__version__,
-            "numpy": np.__version__,
-            "canvas_mm": list(FIGURE_MM),
-            "n_interventions": len(frame),
-            "fdr_category_counts": counts,
-            "n_labels": int(frame[FDR_COLUMN].le(0.20).sum()),
-            "output_pdf": relative_path(args.output_stem.with_suffix(".pdf")),
-            "output_svg": relative_path(args.output_stem.with_suffix(".svg")),
-        }
+    frame = validate_and_annotate(
+        args.results,
+        args.selection_audit,
+        combined_geo_translage=args.combined_geo_translage,
     )
+    axis_reference = None
+    if args.axis_reference_results is not None:
+        axis_reference = validate_and_annotate(
+            args.axis_reference_results,
+            args.selection_audit,
+            combined_geo_translage=False,
+        )
+    label_layout = (
+        COMBINED_LABEL_LAYOUT if args.combined_geo_translage else LABEL_LAYOUT
+    )
+    axis_audit = draw_volcano(
+        frame,
+        args.output_stem,
+        label_layout=label_layout,
+        axis_reference=axis_reference,
+    )
+    counts = frame["fdr_category"].value_counts().to_dict()
+    audit = {
+        "python": platform.python_version(),
+        "matplotlib": matplotlib.__version__,
+        "pandas": pd.__version__,
+        "numpy": np.__version__,
+        **axis_audit,
+        "combined_geo_translage": args.combined_geo_translage,
+        "results": relative_path(args.results),
+        "selection_audit": (
+            relative_path(args.selection_audit) if args.selection_audit else None
+        ),
+        "axis_reference_results": (
+            relative_path(args.axis_reference_results)
+            if args.axis_reference_results
+            else None
+        ),
+        "n_interventions": len(frame),
+        "fdr_category_counts": {str(key): int(value) for key, value in counts.items()},
+        "n_labels": int(frame[FDR_COLUMN].le(0.20).sum()),
+        "output_pdf": relative_path(args.output_stem.with_suffix(".pdf")),
+        "output_svg": relative_path(args.output_stem.with_suffix(".svg")),
+    }
+    audit_path = args.audit_json or args.output_stem.with_name(
+        f"{args.output_stem.name}_audit.json"
+    )
+    audit["audit_json"] = relative_path(audit_path)
+    audit_path.parent.mkdir(parents=True, exist_ok=True)
+    audit_path.write_text(json.dumps(audit, indent=2) + "\n", encoding="utf-8")
+    print(audit)
     return 0
 
 

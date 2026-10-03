@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Train five-fold OOF age models, fit standardized Cox models, and plot.
 
-Edit only ``DATASET_PATH``.  The row-oriented table must contain the biological
-age columns/CpGs plus ``survival_time_years``, ``event``, and ``sex_male``.
+Run ``prepare_inchianti_dataset`` first; ``DATASET_PATH`` points to its output.
+The row-oriented table must contain the biological age columns/CpGs plus
+``survival_time_years``, ``event``, and ``sex_male``.
 All Cox estimates use pooled participant-level OOF predictions; the observed
 clinical PhenoAge comparator is never trained on its own outcome.
 """
@@ -43,7 +44,7 @@ from .plotting import COLORS, LABELS, clean_axis, configure_style, save_vector_p
 from .provenance import software_versions
 from .run_biological_age_prediction import fit_oof_elasticnet
 
-# --- Paths: this is the only user-edited input ---
+# --- Repository-local generated input, outputs, and cache ---
 
 DATASET_PATH = (
     Path(__file__).resolve().parent

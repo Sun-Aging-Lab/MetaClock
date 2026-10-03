@@ -9,6 +9,7 @@ import os
 import re
 import time
 from datetime import datetime, timezone
+from http.client import HTTPMessage
 from pathlib import Path
 from urllib.request import Request, urlopen
 
@@ -40,7 +41,8 @@ FILES = (
 )
 
 
-def total_size(headers: object, offset: int) -> int | None:
+def total_size(headers: HTTPMessage, offset: int) -> int | None:
+    """Read the full download size from HTTP range or length headers when available."""
     content_range = headers.get("Content-Range")
     if content_range:
         match = re.search(r"/(\d+)$", content_range)
@@ -53,12 +55,14 @@ def total_size(headers: object, offset: int) -> int | None:
 
 
 def require_gzip(path: Path) -> None:
+    """Require gzip magic bytes before reusing or publishing a downloaded file."""
     with path.open("rb") as handle:
         if handle.read(2) != b"\x1f\x8b":
             raise ValueError(f"Downloaded file is not gzip data: {path}")
 
 
 def download_once(url: str, destination: Path) -> dict[str, object]:
+    """Reuse or resume one GEO gzip download and return its acquisition metadata."""
     if destination.is_file() and destination.stat().st_size > 0:
         require_gzip(destination)
         print(f"[reuse] {destination}")
@@ -124,6 +128,7 @@ def download_once(url: str, destination: Path) -> dict[str, object]:
 
 
 def download(url: str, destination: Path) -> dict[str, object]:
+    """Retry a GEO download up to MAX_ATTEMPTS and propagate its final failure."""
     for attempt in range(1, MAX_ATTEMPTS + 1):
         try:
             return download_once(url, destination)

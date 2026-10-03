@@ -26,7 +26,6 @@ from .species_config import (
     SPECIES,
     direct_input_path,
     metadata_path,
-    mlp_input_path,
 )
 
 ARRAY_ID = re.compile(r"(\d+_R\d+C\d+)")
@@ -37,7 +36,10 @@ GESTATION_DECIMALS = 3
 def parse_geo_metadata(path: Path) -> pd.DataFrame:
     """Parse GSE223748 sample fields without relying on metadata row order."""
     if not path.is_file():
-        raise FileNotFoundError(f"Set GSE223748_SERIES_PATH to the GEO series matrix: {path}")
+        raise FileNotFoundError(
+            f"Missing downloaded input: {path}. "
+            "Run python -m generalization.species.fetch_gse223748 first."
+        )
     csv.field_size_limit(sys.maxsize)
     base: dict[str, list[str]] = {}
     characteristics: list[list[str]] = []
@@ -116,7 +118,10 @@ def add_transformed_age(metadata: pd.DataFrame) -> pd.DataFrame:
 def read_beta_matrix(path: Path, sample_ids: set[str]) -> pd.DataFrame:
     """Read selected GSE223748 columns from the deposited normalized beta matrix."""
     if not path.is_file():
-        raise FileNotFoundError(f"Set GSE223748_BETA_PATH to the normalized beta matrix: {path}")
+        raise FileNotFoundError(
+            f"Missing downloaded input: {path}. "
+            "Run python -m generalization.species.fetch_gse223748 first."
+        )
     with gzip.open(path, "rt", newline="") as handle:
         header = next(csv.reader(handle))
     probe_column = "Unnamed: 0" if header[0] == "" else header[0]
@@ -150,7 +155,7 @@ def sample_by_probe(matrix: pd.DataFrame, records: pd.DataFrame) -> pd.DataFrame
 
 
 def prepare_inputs() -> None:
-    """Build ten target inputs and one leakage-free pooled MLP input."""
+    """Build CpG inputs for ten targets and one leakage-free pooled ENCV clock."""
     metadata = add_transformed_age(parse_geo_metadata(GSE223748_SERIES_PATH))
     valid = metadata["exclusion_reason"].eq("")
     targets = metadata.loc[valid & metadata["model_species"].notna()].copy()
@@ -175,22 +180,18 @@ def prepare_inputs() -> None:
     summaries: list[dict[str, object]] = []
     for source, source_records in records.items():
         full = sample_by_probe(matrix, source_records)
-        mlp_path = mlp_input_path(source)
-        mlp_path.parent.mkdir(parents=True, exist_ok=True)
-        full.to_parquet(mlp_path, compression="zstd")
-        if source in SPECIES:
-            direct_path = direct_input_path(source)
-            direct_path.parent.mkdir(parents=True, exist_ok=True)
-            full.loc[:, [TARGET, *cpgs]].to_parquet(direct_path, compression="zstd")
-            meta_path = metadata_path(source)
-            meta_path.parent.mkdir(parents=True, exist_ok=True)
-            source_records.to_csv(meta_path, sep="\t", index=False)
+        direct_path = direct_input_path(source)
+        direct_path.parent.mkdir(parents=True, exist_ok=True)
+        full.loc[:, [TARGET, *cpgs]].to_parquet(direct_path, compression="zstd")
+        meta_path = metadata_path(source)
+        meta_path.parent.mkdir(parents=True, exist_ok=True)
+        source_records.to_csv(meta_path, sep="\t", index=False)
         summaries.append(
             {
                 "source": source,
                 "samples": len(full),
-                "mlp_features": full.shape[1] - 1,
-                "direct_cpg_features": len(cpgs) if source in SPECIES else None,
+                "component_model_type": "elasticnetcv",
+                "direct_cpg_features": len(cpgs),
             }
         )
     excluded = metadata.loc[metadata["model_species"].notna() & ~valid]

@@ -8,4 +8,4 @@ from intervention_analysis.paths import PROJECT_ROOT
 
 
 MPLCONFIGDIR = PROJECT_ROOT / "data" / "intervention" / "matplotlib_cache"
-os.environ.setdefault("MPLCONFIGDIR", "data/intervention/matplotlib_cache")
+os.environ.setdefault("MPLCONFIGDIR", str(MPLCONFIGDIR))

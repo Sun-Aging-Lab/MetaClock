@@ -12,15 +12,20 @@ suppressPackageStartupMessages({
 
 script_argument <- grep("^--file=", commandArgs(trailingOnly = FALSE), value = TRUE)
 script_path <- normalizePath(sub("^--file=", "", script_argument[[1L]]), mustWork = TRUE)
+project_root <- dirname(dirname(dirname(script_path)))
 manifest_path <- file.path(dirname(dirname(script_path)), "analysis_manifest.json")
 manifest <- jsonlite::read_json(manifest_path, simplifyVector = TRUE)
 config <- manifest$enrichment
 
-default_output <- "results/enrichment/array_union"
-default_chain <- "data/reference/hg19ToHg38.over.chain.gz"
+default_output <- file.path(project_root, "results/enrichment/array_union")
+# Correct the 27K source coordinates from hg18 to the hg19 analysis build.
+default_chain <- "path/to/your/file"  # fill in your path: UCSC hg18-to-hg19 chain
 args <- commandArgs(trailingOnly = TRUE)
 output_dir <- if (length(args) >= 1L) args[[1L]] else default_output
 chain_path <- if (length(args) >= 2L) args[[2L]] else default_chain
+if (!file.exists(chain_path)) {
+    stop("Set the second argument to your UCSC hg18-to-hg19 chain file: ", chain_path)
+}
 if (dir.exists(output_dir) && length(list.files(output_dir, all.files = TRUE, no.. = TRUE))) {
     stop("Refusing to overwrite a non-empty array-union directory: ", output_dir)
 }
@@ -38,6 +43,7 @@ expected_versions <- c(
 )
 canonical_chromosomes <- paste0("chr", c(seq_len(22L), "X", "Y"))
 
+# Return valid, uniquely named single-CpG GRanges from a version-checked annotation.
 load_locations <- function(specification, platform) {
     package <- specification[[1L]]
     object <- specification[[2L]]
@@ -60,6 +66,7 @@ load_locations <- function(specification, platform) {
 
 coordinate_key <- function(ranges) paste(as.character(seqnames(ranges)), start(ranges), sep = ":")
 
+# Audit coordinate agreement for CpG IDs shared by two annotation GRanges.
 compare_shared <- function(left, right) {
     shared <- intersect(names(left), names(right))
     same <- coordinate_key(left[match(shared, names(left))]) == coordinate_key(right[match(shared, names(right))])
@@ -71,6 +78,7 @@ to_table <- function(ranges, platform) data.table(
     position = as.integer(start(ranges)), platform = platform
 )
 
+# Export one-based CpG positions as zero-based, half-open BED intervals.
 write_bed <- function(table, path) {
     fwrite(
         table[, .(chromosome, start = position - 1L, end = position, cpg)],
@@ -87,7 +95,6 @@ before_27k_450k <- compare_shared(ranges_27k_source, ranges_450k)
 if (before_27k_450k$shared < 25000L || before_27k_450k$matches > 100L) {
     stop("27K package coordinates do not show the expected hg18 signature")
 }
-if (!file.exists(chain_path)) stop("Missing hg18-to-hg19 chain: ", chain_path)
 genome(ranges_27k_source) <- "hg18"
 lifted <- rtracklayer::liftOver(ranges_27k_source, rtracklayer::import.chain(chain_path))
 lift_counts <- S4Vectors::elementNROWS(lifted)

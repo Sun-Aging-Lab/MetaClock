@@ -8,4 +8,4 @@ from repository_paths import PROJECT_ROOT
 
 
 MPLCONFIGDIR = PROJECT_ROOT / "data" / "matplotlib_cache"
-os.environ.setdefault("MPLCONFIGDIR", "data/matplotlib_cache")
+os.environ.setdefault("MPLCONFIGDIR", str(MPLCONFIGDIR))

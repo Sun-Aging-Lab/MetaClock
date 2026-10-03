@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Train BioMeta/direct-CpG models and draw 5-fold OOF performance bars.
 
-Edit only ``DATASET_PATH`` below.  The input is one sample per row and must
-contain ID, sampleID, age_years, clinical_phenoage,
-clinical_phenoage_complete_case, and all 485,577 InCHIANTI DNAm features.  The
+Run ``prepare_inchianti_dataset`` first; ``DATASET_PATH`` points to its output.
+The input is one sample per row and must contain ID, sampleID, age_years,
+clinical_phenoage, clinical_phenoage_complete_case, and all 485,577 InCHIANTI DNAm features.  The
 OOF model uses 19 component clocks; the external refit uses the 17 clocks that
 are available in every external dataset.
 """
@@ -55,7 +55,7 @@ from .data import (
 from .plotting import COLORS, LABELS, clean_axis, configure_style, save_vector_pair
 from .provenance import software_versions
 
-# --- Paths: this is the only user-edited input ---
+# --- Repository-local generated input, outputs, and cache ---
 
 DATASET_PATH = (
     Path(__file__).resolve().parent

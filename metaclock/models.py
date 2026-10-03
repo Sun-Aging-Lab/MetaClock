@@ -6,6 +6,7 @@ from importlib import import_module
 from typing import Any, Mapping
 
 import numpy as np
+from sklearn.base import BaseEstimator
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.linear_model import ElasticNetCV, LassoCV, LinearRegression, RidgeCV
 from sklearn.model_selection import KFold
@@ -58,7 +59,7 @@ def normalize_architecture(architecture: str) -> str:
     return name
 
 
-def _scaled(model: Any) -> Pipeline:
+def _scaled(model: BaseEstimator) -> Pipeline:
     return Pipeline([("scaler", StandardScaler()), ("model", model)])
 
 
@@ -68,7 +69,7 @@ def make_estimator(
     random_state: int = 42,
     n_jobs: int | None = 1,
     model_params: Mapping[str, Any] | None = None,
-):
+) -> BaseEstimator:
     """Build an unfitted regressor using maintained package implementations.
 
     ``model_params`` are passed directly to the final estimator. Scaled linear

@@ -53,14 +53,14 @@ EXPECTED_SAMPLE_COUNTS = {
     "RattusNorvegicus": 601,
 }
 POOLED_COMPONENT = "alltissueconcat"
+GENERALIZATION_CONFIG_ID = (
+    "generalization-v5-gse223748-submodels-split105-30x50-pandas-sample-scaled-encv5-"
+    "scaled-svr-strict-encv100-loo"
+)
 
 
 def direct_input_path(species: str) -> Path:
     return INPUT_ROOT / "direct" / f"{species}_fewshot_40k.parquet"
-
-
-def mlp_input_path(source: str) -> Path:
-    return INPUT_ROOT / "mlp" / f"{source}_fewshot_40k.parquet"
 
 
 def metadata_path(species: str) -> Path:

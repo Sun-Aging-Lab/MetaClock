@@ -18,13 +18,13 @@ import pandas as pd
 from matplotlib.colors import to_rgba
 from matplotlib.lines import Line2D
 
-from repository_paths import repo_path
+from repository_paths import PROJECT_ROOT, repo_path
 
 from ..config import ENRICHMENT
 from ..plotting import configure_style as configure_manuscript_style
 
-DEFAULT_RESULTS = Path("results/enrichment/rgreat")
-DEFAULT_OUTPUT = Path("results/enrichment/figures")
+DEFAULT_RESULTS = PROJECT_ROOT / "results/enrichment/rgreat"
+DEFAULT_OUTPUT = PROJECT_ROOT / "results/enrichment/figures"
 FDR_THRESHOLD = 0.05
 TERMS_PER_PANEL = 5
 

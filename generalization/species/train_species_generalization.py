@@ -2,8 +2,8 @@
 """Fit and test one GSE223748 species sample-size point (50 resample replicates).
 
 Direct CpGs and target samples come from the prepared GSE223748 species input.
-Meta features come from nine non-self saved species models plus the pooled
-MLP-ELU model; ENCV submodel features support the evolution coefficients.
+Meta features come from nine non-self saved species ENCV clocks plus the pooled
+ENCV clock; the nine species clocks also support the evolution coefficients.
 
 The Slurm array task ID selects one of 30 log-spaced training sizes.  A local
 run without Slurm evaluates size index 0.
@@ -15,7 +15,6 @@ import importlib.metadata
 import json
 import os
 import platform
-import re
 import tempfile
 import warnings
 from pathlib import Path
@@ -33,29 +32,19 @@ from repository_paths import ensure_repo_path, relative_path
 
 from .species_config import (
     DISPLAY_NAMES,
+    GENERALIZATION_CONFIG_ID as CONFIG_ID,
     POOLED_COMPONENT,
     SPECIES,
     direct_input_path,
     loo_feature_path,
 )
+from .species_submodels import COMPONENT_CONFIG_ID, ENCV_ARCHITECTURE
 
 ############################## USER INPUT ####################################
 
 ######################## FIXED SCIENTIFIC CONFIG #############################
 
 TARGET = "age"
-MLP_ELU_ARCHITECTURE = {
-    "hidden_dims": [100, 50],
-    "activation": "ELU",
-    "batch_normalization": True,
-    "dropout": 0.5,
-    "optimizer": "AdamW",
-    "learning_rate": 1e-3,
-    "weight_decay": 1e-3,
-    "batch_size": 32,
-    "epochs": 300,
-    "seed": 105,
-}
 MODEL_NAMES = ("EN", "Meta EN", "SVM", "Meta SVM", "Mean")
 SPLIT_SEED = 105
 RESAMPLE_SEED = 42
@@ -68,10 +57,6 @@ ALPHAS = np.logspace(0.0, -5.0, 30)
 L1_RATIO = 0.5
 MAX_ITER = 20_000
 TOLERANCE = 1e-4
-CONFIG_ID = (
-    "generalization-v4-gse223748-submodels-split105-30x50-pandas-sample-scaled-encv5-"
-    "scaled-svr-strict-mlp-elu-loo"
-)
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 RESULT_ROOT = PROJECT_ROOT / "results" / "generalization" / "species"
 
@@ -94,18 +79,10 @@ RESULT_COLUMNS = (
 
 
 def read_table(path: Path) -> pd.DataFrame:
-    """Read a supported table without silently guessing arbitrary formats."""
+    """Read a prepared Parquet input and validate its sample identifiers."""
     if not path.is_file():
         raise FileNotFoundError(f"Required prepared species input does not exist: {path}")
-    suffixes = "".join(path.suffixes).lower()
-    if suffixes.endswith((".parquet", ".pq")):
-        frame = pd.read_parquet(path)
-    elif suffixes.endswith((".tsv", ".tsv.gz")):
-        frame = pd.read_csv(path, sep="\t")
-    elif suffixes.endswith((".csv", ".csv.gz")):
-        frame = pd.read_csv(path)
-    else:
-        raise ValueError("Prepared species input must be CSV, TSV, or parquet")
+    frame = pd.read_parquet(path)
     if "sample_id" in frame:
         frame = frame.set_index(frame["sample_id"].astype(str)).drop(columns="sample_id")
     else:
@@ -113,25 +90,6 @@ def read_table(path: Path) -> pd.DataFrame:
     if not frame.index.is_unique:
         raise ValueError("Sample identifiers must be unique")
     return frame
-
-
-def constant_text(frame: pd.DataFrame, column: str, fallback: str) -> str:
-    """Read one optional constant metadata value."""
-    if column not in frame:
-        return fallback
-    values = frame[column].dropna().astype(str).unique()
-    if len(values) != 1:
-        raise ValueError(f"Optional metadata column {column!r} must be constant")
-    return str(values[0])
-
-
-def dataset_name(frame: pd.DataFrame, path: Path) -> str:
-    """Build a filesystem-safe dataset name from metadata or the filename."""
-    name = constant_text(frame, "dataset", path.name.split(".")[0])
-    safe = re.sub(r"[^A-Za-z0-9_.-]+", "_", name).strip("._")
-    if not safe:
-        raise ValueError("Could not derive a non-empty dataset name")
-    return safe
 
 
 def numeric_features(frame: pd.DataFrame, columns: list[str], label: str) -> pd.DataFrame:
@@ -156,6 +114,8 @@ def load_model_inputs(
             f"python -m generalization.species.build_species_loo_features --species {name}"
         )
     loo = read_table(loo_path)
+    if loo.attrs.get("component_config_id") != COMPONENT_CONFIG_ID:
+        raise ValueError("LOO features use an outdated component configuration; rebuild them")
     if not raw.index.equals(loo.index):
         raise ValueError(f"Direct and LOO sample IDs differ for {name}")
     ages = pd.to_numeric(raw[TARGET], errors="coerce")
@@ -167,8 +127,8 @@ def load_model_inputs(
         raise ValueError("At least 25 valid age-labelled samples are required")
     cpg_columns = [str(column) for column in raw if str(column).startswith("cg")]
     component_columns = [
-        *(f"{species}_mlp_elu" for species in SPECIES if species != name),
-        f"{POOLED_COMPONENT}_mlp_elu",
+        *(f"{species}_elasticnetcv" for species in SPECIES if species != name),
+        f"{POOLED_COMPONENT}_elasticnetcv",
     ]
     evolution_columns = [
         f"{species}_elasticnetcv" for species in SPECIES if species != name
@@ -177,12 +137,11 @@ def load_model_inputs(
     if missing:
         raise ValueError(f"LOO feature table is missing columns: {missing}")
     direct = numeric_features(raw, cpg_columns, "Direct CpG matrix")
-    meta = numeric_features(loo, component_columns, "MLP-ELU component matrix")
+    meta = numeric_features(loo, component_columns, "ENCV component matrix")
     evolution = numeric_features(loo, evolution_columns, "ENCV evolution component matrix")
     direct[TARGET] = ages
     meta[TARGET] = ages
-    if evolution is not None:
-        evolution[TARGET] = ages
+    evolution[TARGET] = ages
     return direct, meta, evolution, name, DISPLAY_NAMES[name]
 
 
@@ -348,16 +307,13 @@ def evaluate_point(
 
 
 def write_evolution_coefficients(
-    evolution: pd.DataFrame | None, species: str, output: Path
-) -> Path | None:
+    evolution: pd.DataFrame, species: str, output: Path
+) -> Path:
     """Fit the formal directed non-negative component weights once per species.
 
-    Evolution intentionally uses the nine ``*_elasticnetcv`` inputs rather than
-    the MLP-ELU inputs used by the few-shot Meta models.  This preserves the
-    current formal evolution-panel definition.
+    Evolution uses the nine non-self species ENCV inputs shared with the few-shot
+    Meta models, excluding the pooled clock from directed species coefficients.
     """
-    if evolution is None:
-        return None
     features = [column for column in evolution if column != TARGET]
     complete = evolution[[*features, TARGET]].dropna()
     if len(complete) < CV_FOLDS:
@@ -456,6 +412,7 @@ def selected_size_index() -> int:
 
 
 def main() -> int:
+    """Fit or validate the selected species/size shard and its provenance."""
     name = os.environ.get("TARGET_SPECIES", SPECIES[0])
     path = ensure_repo_path(direct_input_path(name))
     direct, meta, evolution, name, title = load_model_inputs(name)
@@ -496,12 +453,8 @@ def main() -> int:
             "test_samples": len(direct_test),
             "direct_features": direct_train.shape[1] - 1,
             "component_features": [column for column in meta if column != TARGET],
-            "component_prediction_architecture": MLP_ELU_ARCHITECTURE,
-            "evolution_features": (
-                [column for column in evolution if column != TARGET]
-                if evolution is not None
-                else []
-            ),
+            "component_prediction_architecture": ENCV_ARCHITECTURE,
+            "evolution_features": [column for column in evolution if column != TARGET],
             "split": {"train_fraction": TRAIN_FRACTION, "seed": SPLIT_SEED},
             "resampling": {
                 "repeats": N_RESAMPLES,

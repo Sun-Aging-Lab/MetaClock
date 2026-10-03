@@ -1,25 +1,4 @@
 
-## Human input contract
-
-The beta matrix alone is not sufficient: each sample must also have a unique
-identifier and chronological age. The GEO download adapters obtain and audit
-both. They intentionally use dataset-specific metadata keys and cohort rules
-rather than guessing an age field from arbitrary files.
-
-| Domain | GEO datasets | Selected healthy adults |
-|---|---|---:|
-| array | GSE184221, GSE234461 | 384, 245 |
-| tissue | GSE175458, GSE232891, GSE287331 | 142, 248, 182 |
-
-Each dataset is normalized below `data/generalization/<domain>/<GSE>/` and the
-preparation script writes two aligned sample-indexed files:
-
-- `prepared/direct_cpg_age.parquet`: 1,000 selected `cg...` beta features plus `age`;
-- `prepared/component_predictions_age.parquet`: the exact 16 chronological
-  PyAging predictions plus `age`.
-
-The direct features reproduce the mutual-information 10,000 then mRMR 1,000
-selection. PyAging 0.1.30 runs once per dataset and caches model weights
 
 ## Array: download, PyAging, prepare, train/test
 
@@ -61,13 +40,12 @@ batch-size controls.
 
 ## Species input and workflow
 
-For species, saved submodel artifacts generate nine non-self MLP-ELU
-predictions plus `alltissueconcat_mlp_elu`; nine non-self ENCV predictions are
-used only for evolution coefficients. The target species' own submodels are
-never applied to that target. The MLP-ELU submodels use the specified
-two-hidden-layer 100/50 architecture with ELU, BatchNorm, dropout 0.5, AdamW
-(`learning_rate=1e-3`, `weight_decay=1e-3`), batch size 32, 300 epochs, and seed
-105.
+For species, saved ENCV component pipelines generate nine non-self species
+predictions plus `alltissueconcat_elasticnetcv` for both Meta models. The same
+nine non-self species predictions support evolution coefficients; the pooled
+clock is excluded from those directed coefficients. The target species' own
+clock is never applied to that target, and the pooled training data exclude all
+ten target species.
 
 The species evolution plots read three pairwise tables from
 `generalization/species/`: `pairwise_evolutionary_distances.csv`,
@@ -89,7 +67,6 @@ places before calculating relative age.
 ```bash
 python -m generalization.species.fetch_gse223748
 python -m generalization.species.prepare_species_gse223748_inputs
-sbatch generalization/species/submit_species_mlp_elu_components.sbatch
 sbatch generalization/species/submit_species_elasticnetcv_components.sbatch
 sbatch generalization/species/submit_species_loo_features.sbatch
 sbatch generalization/species/submit_species_generalization.sbatch
@@ -97,31 +74,16 @@ python -m generalization.species.plot_species_generalization
 python -m generalization.species.plot_species_evolution
 ```
 
-Submit these jobs in order, using Slurm `afterok` dependencies when they are
-queued together.
+After changing the component configuration, rerun input preparation (including
+the pooled CpG input), all eleven component jobs, LOO feature generation, and
+the species generalization jobs before plotting. Old component pipelines and
+LOO tables are rejected by their configuration identifiers. Training and plotting
+share the current species configuration identifier so old result shards cannot
+be mixed with this run.
 
-The ENCV submodels generate the nine cross-species features for each target.
+The ENCV submodels generate nine cross-species features and one pooled feature
+for each target.
 The size-zero species task then fits the fixed positive Elastic Net directed
 coefficients used by the molecular-evolutionary-distance,
 maximum-lifespan-difference, and gestation-difference panels. The plot command
 reads the resulting ten coefficient tables and the three pairwise CSV tables.
-
-## Fixed scientific configuration and outputs
-
-
-EN/Meta EN use `StandardScaler` followed by scikit-learn `ElasticNetCV` with
-five folds, 30 alphas from 1 to 1e-5, `l1_ratio=0.5`, `max_iter=20000`,
-`tol=1e-4`, and `n_jobs=-1`.  SVM/Meta SVM use `StandardScaler` followed by a
-linear `SVR` with `C=1`, `epsilon=0.1`, `tol=1e-3`, and unlimited iterations.
-Every estimator is refit within every resample.  Resample IDs use the
-seed `42 + repeat_id + training_size * 1000`.
-
-Each plotting script writes merged resampling source data, a
-mean/2.5th/97.5th percentile summary, and four PDF/SVG layouts per dataset:
-
-- starting at training size 10, with and without the Mean baseline;
-- starting at the shared above-Mean cutoff, with and without the Mean baseline.
-
-Training shards are written
-under `results/generalization/`; figures are written under
-`figures/generalization/`.
