@@ -9,6 +9,7 @@ suppressPackageStartupMessages({
 })
 script_argument <- grep("^--file=", commandArgs(trailingOnly = FALSE), value = TRUE)
 script_path <- normalizePath(sub("^--file=", "", script_argument[[1L]]), mustWork = TRUE)
+project_root <- dirname(dirname(dirname(script_path)))
 manifest_path <- file.path(dirname(dirname(script_path)), "analysis_manifest.json")
 manifest <- jsonlite::read_json(manifest_path, simplifyVector = TRUE)
 config <- manifest$enrichment
@@ -16,10 +17,11 @@ if (!identical(as.character(utils::packageVersion("rGREAT")), config$rGREAT_vers
     stop("This workflow requires rGREAT ", config$rGREAT_version)
 }
 
-default_input_dir <- "results/enrichment/inputs"
-default_background <- "results/enrichment/array_union/background_27k_450k_epic_union_hg19.bed.gz"
-default_gene_sets <- "data/enrichment/gene_sets.rds"
-default_output_dir <- "results/enrichment/rgreat"
+default_input_dir <- file.path(project_root, "results/enrichment/inputs")
+default_background <- file.path(project_root, "results/enrichment/array_union/background_27k_450k_epic_union_hg19.bed.gz")
+# Directory containing one <library>.gmt file per external gene-set library.
+default_gene_sets <- "path/to/your/directory"  # fill in your path: external GMT directory
+default_output_dir <- file.path(project_root, "results/enrichment/rgreat")
 args <- commandArgs(trailingOnly = TRUE)
 if (length(args) < 2L) {
     stop("Usage: Rscript run_rgreat_top_bottom_enrichment.R MODEL LIBRARY [INPUT_DIR BACKGROUND_BED GENE_SET_DIR OUTPUT_DIR]")
@@ -35,12 +37,16 @@ valid_models <- unname(config$models)
 valid_libraries <- unname(config$libraries)
 if (!model %in% valid_models) stop("MODEL must be chrono or bio")
 if (!library_name %in% valid_libraries) stop("Unknown library: ", library_name)
+if (library_name != "go_bp" && !file.exists(file.path(gene_set_dir, paste0(library_name, ".gmt")))) {
+    stop("Set the fifth argument to the directory containing ", library_name, ".gmt: ", gene_set_dir)
+}
 
 foreground_regions_expected <- as.integer(config$top_n)
 background_regions_expected <- as.integer(config$union_cpgs)
 min_gene_set_size <- as.integer(config$min_gene_set_size)
 min_region_hits <- as.integer(config$min_region_hits)
 
+# Read four-column BED input and reject missing, duplicated, or invalid intervals.
 read_bed <- function(path) {
     table <- utils::read.delim(
         path,
@@ -57,6 +63,7 @@ read_bed <- function(path) {
     table
 }
 
+# Convert zero-based BED starts to one-based GRanges coordinates, retaining CpG IDs.
 to_granges <- function(table) {
     ranges <- GRanges(
         seqnames = table$chromosome,
@@ -66,6 +73,7 @@ to_granges <- function(table) {
     ranges
 }
 
+# Return term-to-Entrez sets retaining all valid mappings, and write mapping audits.
 map_symbol_sets_to_entrez <- function(gene_sets, output_dir) {
     # AnnotationDbi performs the maintained SYMBOL-to-ENTREZID mapping.
     pairs <- unique(do.call(rbind, lapply(names(gene_sets), function(term) {

@@ -119,7 +119,7 @@ def predict_dataset_components(
     if np.isinf(beta.to_numpy(dtype=float)).any():
         raise ValueError(f"{spec.gse}: beta matrix contains infinite values")
     missing_values = int(beta.isna().sum().sum())
-    prediction_runner = runner or _pyaging_runner
+    prediction_runner = runner if runner is not None else _pyaging_runner
     prediction, diagnostics = prediction_runner(
         beta, CHRONOLOGICAL_COMPONENTS, ensure_repo_path(cache_dir), batch_size
     )

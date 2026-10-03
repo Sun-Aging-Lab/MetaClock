@@ -35,7 +35,7 @@ from .published_biometaclock import load_published_biometaclock
 
 # --- Paths: this is the only user-edited raw input ---
 
-DATASET_PATH = Path("data/biological_age/external_disease.parquet")
+DATASET_PATH = Path("path/to/your/file")  # fill in your path: external DNAm table
 ROOT = Path(__file__).resolve().parent
 MODEL_DIR = ROOT / "outputs" / "biological_age_prediction" / "models"
 OUTPUT_DIR = ROOT / "outputs" / "external_disease"

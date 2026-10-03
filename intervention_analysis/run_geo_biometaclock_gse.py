@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+"""Predict and test the frozen intervention comparisons for one GEO dataset."""
+
 from __future__ import annotations
 
 import argparse
@@ -28,6 +30,7 @@ from intervention_analysis.paths import (
     repo_path,
 )
 from intervention_analysis.runtime import (
+    DatasetSpec,
     MIN_CPG_COVERAGE,
     dataset_spec,
     load_biometa_clock_features,
@@ -43,6 +46,7 @@ MAX_NEAR_ZERO_BETA_FRACTION = 0.95
 
 
 def sha256(path: Path) -> str:
+    """Return the hexadecimal SHA-256 digest of a file."""
     digest = hashlib.sha256()
     with path.open("rb") as handle:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
@@ -51,6 +55,7 @@ def sha256(path: Path) -> str:
 
 
 def normalized_probe_id(value: str) -> str:
+    """Strip quoting and platform suffixes from a CpG probe identifier."""
     probe = value.strip('"')
     if match := re.match(r"^(cg\d+)(?:_.+)?$", probe, flags=re.IGNORECASE):
         return match.group(1)
@@ -58,6 +63,7 @@ def normalized_probe_id(value: str) -> str:
 
 
 def parse_beta_value(value: str) -> float:
+    """Parse one beta value, mapping the supported missing markers to NaN."""
     text = value.strip().strip('"')
     if text.upper() in {"", "NA", "NAN", "N/A", "#N/D"}:
         return float("nan")
@@ -65,6 +71,7 @@ def parse_beta_value(value: str) -> float:
 
 
 def welch_df(left: np.ndarray, right: np.ndarray) -> float:
+    """Calculate Welch-Satterthwaite degrees of freedom for two samples."""
     left_var = float(np.var(left, ddof=1))
     right_var = float(np.var(right, ddof=1))
     left_term = left_var / len(left)
@@ -78,12 +85,14 @@ def welch_df(left: np.ndarray, right: np.ndarray) -> float:
 
 
 def write_csv_atomic(frame: pd.DataFrame, path: Path) -> None:
+    """Write a CSV through a sibling temporary file and atomic rename."""
     temporary = path.with_suffix(path.suffix + ".tmp")
     frame.to_csv(temporary, index=False)
     temporary.replace(path)
 
 
 def write_json_atomic(payload: dict[str, Any], path: Path) -> None:
+    """Write JSON through a sibling temporary file and atomic rename."""
     temporary = path.with_suffix(path.suffix + ".tmp")
     temporary.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
     temporary.replace(path)
@@ -91,12 +100,18 @@ def write_json_atomic(payload: dict[str, Any], path: Path) -> None:
 
 def read_normalized_delimited(
     path: Path,
-    spec: Any,
+    spec: DatasetSpec,
     required_cpgs: set[str],
     sample_rows: bool,
     no_probe_header: bool = False,
     probe_column_index: int = 0,
 ) -> pd.DataFrame:
+    """Read required CpGs and assigned samples from a gzipped delimited matrix.
+
+    ``sample_rows`` selects whether samples occupy rows or columns. The returned
+    float32 frame always has repository sample IDs as its index and CpGs as
+    columns; only ``required_cpgs`` are retained.
+    """
     requested = [str(item["matrix_column"]) for item in spec.samples]
     requested_sample_ids = [str(item["sample_id"]) for item in spec.samples]
     with gzip.open(
@@ -181,7 +196,15 @@ def read_normalized_delimited(
     return beta.astype(np.float32)
 
 
-def parse_assigned_beta(path: Path, spec: Any, required_cpgs: set[str]) -> pd.DataFrame:
+def parse_assigned_beta(
+    path: Path, spec: DatasetSpec, required_cpgs: set[str]
+) -> pd.DataFrame:
+    """Dispatch one frozen matrix assignment to its format-specific parser.
+
+    Methylated/unmethylated signal inputs are converted to beta values with the
+    manifest's assigned samples. Other normalized layouts are delegated to the
+    delimited or GEO series-matrix parsers.
+    """
     if spec.matrix_format == "normalized_delimited_meth_unmeth":
         requested = [str(item["matrix_column"]) for item in spec.samples]
         with gzip.open(
@@ -241,6 +264,12 @@ def parse_assigned_beta(path: Path, spec: Any, required_cpgs: set[str]) -> pd.Da
 
 
 def age_correct_strata(samples: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Residualize BioMetaClock predictions on age within each declared stratum.
+
+    Returns the sample rows with raw and residualized predictions together with
+    one audit row per stratum describing the fitted linear or intercept-only
+    adjustment.
+    """
     corrected_parts: list[pd.DataFrame] = []
     fits: list[dict[str, Any]] = []
     for stratum, rows in samples.groupby("age_correction_stratum", sort=False):
@@ -293,6 +322,13 @@ def age_correct_strata(samples: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFram
 
 
 def summarize_comparisons(samples: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Collapse replicate samples by donor and run each declared comparison.
+
+    The manifest's analysis method determines paired versus Welch testing and
+    whether pre/post values are differenced first. Effects and test statistics
+    use experiment minus control. The returned frames contain comparison-level
+    results and the donor-level values used by those tests, respectively.
+    """
     signature_column = (
         "sample_signature_id"
         if "sample_signature_id" in samples.columns

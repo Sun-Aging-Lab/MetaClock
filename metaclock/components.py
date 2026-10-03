@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from os import PathLike
 from pathlib import Path
-from typing import Any, Sequence
+from typing import TYPE_CHECKING, Any, Sequence, TypeAlias, Union
 
 import numpy as np
 import pandas as pd
@@ -12,7 +12,10 @@ from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.utils.validation import check_is_fitted
 
 
-InputData = Any | str | PathLike[str]
+if TYPE_CHECKING:
+    from anndata import AnnData
+
+InputData: TypeAlias = Union["AnnData", str, PathLike[str]]
 
 
 def normalize_component_models(
@@ -46,7 +49,7 @@ def normalize_component_models(
     return tuple(normalized)
 
 
-def load_anndata(input_data: InputData):
+def load_anndata(input_data: InputData) -> AnnData:
     """Load a pyaging-standard AnnData object from memory or an .h5ad file."""
     try:
         import anndata as ad
@@ -79,25 +82,6 @@ def load_anndata(input_data: InputData):
     return adata.copy() if adata.is_view else adata
 
 
-def _pyaging_predict_age():
-    try:
-        import pyaging
-    except ImportError as exc:  # pragma: no cover - declared core dependency
-        raise ImportError(
-            "pyaging is required to calculate component-model predictions."
-        ) from exc
-
-    for namespace_name in ("pred", "predict"):
-        namespace = getattr(pyaging, namespace_name, None)
-        function = getattr(namespace, "predict_age", None)
-        if callable(function):
-            return function
-    function = getattr(pyaging, "predict_age", None)
-    if callable(function):
-        return function
-    raise ImportError("The installed pyaging version does not expose predict_age().")
-
-
 class PyAgingTransformer(TransformerMixin, BaseEstimator):
     """Transform a pyaging-standard AnnData object into component predictions.
 
@@ -124,6 +108,7 @@ class PyAgingTransformer(TransformerMixin, BaseEstimator):
         self.copy = copy
 
     def fit(self, X: InputData, y: Any = None) -> PyAgingTransformer:
+        """Validate clock names and record their output order without fitting clocks."""
         del X, y
         self.component_models_ = normalize_component_models(self.component_models)
         if not isinstance(self.batch_size, int) or self.batch_size < 1:
@@ -132,6 +117,7 @@ class PyAgingTransformer(TransformerMixin, BaseEstimator):
         return self
 
     def transform(self, X: InputData) -> pd.DataFrame:
+        """Run PyAging in place (on a copy if requested) and return finite predictions."""
         check_is_fitted(self, "component_models_")
         adata = load_anndata(X)
         if self.copy:
@@ -146,9 +132,10 @@ class PyAgingTransformer(TransformerMixin, BaseEstimator):
         if self.pyaging_dir is not None:
             kwargs["dir"] = str(self.pyaging_dir)
 
-        predicted = _pyaging_predict_age()(adata, **kwargs)
-        if predicted is not None:
-            adata = predicted
+        import pyaging as pya
+
+        # PyAging 0.1.30 populates adata.obs in place and returns None.
+        pya.pred.predict_age(adata, **kwargs)
 
         column_lookup: dict[str, Any] = {}
         for column in adata.obs.columns:
@@ -189,6 +176,7 @@ class PyAgingTransformer(TransformerMixin, BaseEstimator):
         )
 
     def get_feature_names_out(self, input_features: Any = None) -> np.ndarray:
+        """Return fitted component names in prediction-column order."""
         del input_features
         check_is_fitted(self, "component_models_")
         return np.asarray(self.component_models_, dtype=object)

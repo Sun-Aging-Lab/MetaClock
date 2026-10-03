@@ -71,6 +71,7 @@ def write_json_atomic(payload: dict[str, Any], path: Path) -> None:
 
 
 def validate_frozen_inputs() -> tuple[pd.DataFrame, list[str]]:
+    """Cross-check the frozen result, accession, and acquisition manifests."""
     acquisition = pd.read_csv(ACQUISITION_MANIFEST, dtype=str)
     valid = pd.read_csv(VALID_RESULTS, dtype=str)
     gse_ids = [
@@ -111,6 +112,7 @@ def fetch_metadata(
     workers: int,
     requests_per_second: float,
 ) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
+    """Fetch GEO metadata concurrently and return separate success/failure records."""
     limiter = RateLimiter(requests_per_second)
     successes: list[dict[str, Any]] = []
     failures: list[dict[str, str]] = []
@@ -128,6 +130,7 @@ def fetch_metadata(
 
 
 def fetch_matrix(row: Any, matrix_root: Path) -> dict[str, Any]:
+    """Download or reuse one manifest row after enforcing its expected byte size."""
     output = repo_child(matrix_root, str(row.matrix_file))
     if output.exists() and output.stat().st_size != int(row.expected_size_bytes):
         raise ValueError(

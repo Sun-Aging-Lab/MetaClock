@@ -347,6 +347,7 @@ def configure_style() -> None:
 
 
 def axes_for(datasets: list[str]) -> tuple[plt.Figure, np.ndarray]:
+    """Create the fixed four-panel layout or one subplot per supplied dataset."""
     figure = plt.figure(figsize=(FIGURE_MM[0] / 25.4, FIGURE_MM[1] / 25.4))
     if len(datasets) == 4:
         axes = [
@@ -366,6 +367,7 @@ def axes_for(datasets: list[str]) -> tuple[plt.Figure, np.ndarray]:
 
 
 def finish(figure: plt.Figure, axes: np.ndarray, datasets: list[str]) -> None:
+    """Apply dataset titles and shared MAE/Pearson labels to the metric panels."""
     for index, (axis, dataset) in enumerate(zip(axes, datasets, strict=True)):
         axis.set_title(dataset)
         axis.set_ylabel("Pearson r" if index == 0 else "")
@@ -378,6 +380,7 @@ def finish(figure: plt.Figure, axes: np.ndarray, datasets: list[str]) -> None:
 
 
 def save_pair(figure: plt.Figure, stem: str) -> None:
+    """Save matching PDF/SVG outputs and close the figure."""
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     figure.savefig(OUTPUT_DIR / f"{stem}.pdf")
     figure.savefig(OUTPUT_DIR / f"{stem}.svg")

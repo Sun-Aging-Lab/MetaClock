@@ -21,9 +21,9 @@ from .config import (
 )
 
 MODULE_DIR = Path(__file__).resolve().parent
-DNAM_RDATA_PATH = Path("data/raw/InCHIANTI/InChianti_baseline_betas.RData")
-LAB_SAS_PATH = Path("data/raw/InCHIANTI/labo_raw.sas7bdat")
-VITAL_SAS_PATH = Path("data/raw/InCHIANTI/ana_raw.sas7bdat")
+DNAM_RDATA_PATH = Path("path/to/your/file")  # fill in your path: DNAm RData
+LAB_SAS_PATH = Path("path/to/your/file")  # fill in your path: baseline laboratory SAS table
+VITAL_SAS_PATH = Path("path/to/your/file")  # fill in your path: Vital Status SAS table
 OUTPUT_PATH = MODULE_DIR / "outputs" / "preprocessing" / "inchianti_analysis_ready.parquet"
 CRP_SOURCE = "prefer_hs"
 APPLY_PLAUSIBLE_RANGE_FILTER = True
@@ -68,6 +68,7 @@ AGE_CONVERSION_MULTIPLIER = 0.00553
 
 
 def require_columns(frame: pd.DataFrame, required: set[str], source: Path) -> None:
+    """Require named columns in a source table."""
     missing = required.difference(frame.columns)
     if missing:
         raise ValueError(f"{source} is missing required columns: {sorted(missing)}")
@@ -211,6 +212,7 @@ def build_clinical_table(
 
 
 def load_vital_table(path: Path) -> pd.DataFrame:
+    """Load unique participant mortality status, wave, and follow-up dates."""
     vital = pd.read_sas(path, format="sas7bdat", encoding="latin1")
     vital.columns = [str(column) for column in vital.columns]
     required = ("CODE98", "DECEASED", "INTV_MOR", "DATA_MOR", "DATA_ULT")
@@ -232,6 +234,12 @@ def build_metadata(
     clinical: pd.DataFrame,
     vital: pd.DataFrame,
 ) -> tuple[pd.DataFrame, np.ndarray]:
+    """Join phenotype, clinical, and vital data in beta-matrix sample order.
+
+    Returns the sample metadata and the corresponding integer beta-matrix
+    column positions. Survival and wave-based Kaplan-Meier endpoints are
+    derived here from the joined vital-status fields.
+    """
     keep = [
         column for column in ("ID", "sampleID", "visit", "AGE", "SEX") if column in pheno
     ]
@@ -289,6 +297,10 @@ def write_dataset(
     cpg_names: pd.Index,
     sample_positions: np.ndarray,
 ) -> int:
+    """Validate the DNAm manifest and write the row-oriented analysis dataset.
+
+    The return value is the number of DNAm features written.
+    """
     selected_names = cpg_names.astype(str)
     prefix_counts = {
         prefix: int(selected_names.str.startswith(prefix).sum())
@@ -322,6 +334,7 @@ def write_dataset(
 
 
 def main() -> None:
+    """Prepare the shared table and record external input paths and software versions."""
     beta, cpg_names, beta_sample_ids, pheno = load_rdata(DNAM_RDATA_PATH)
     clinical, range_report = build_clinical_table(
         LAB_SAS_PATH, CRP_SOURCE, APPLY_PLAUSIBLE_RANGE_FILTER
@@ -331,9 +344,9 @@ def main() -> None:
     n_dnam_features = write_dataset(OUTPUT_PATH, metadata, beta, cpg_names, sample_positions)
     summary = {
         "inputs": {
-            "dnam_rdata": relative_path(DNAM_RDATA_PATH),
-            "lab_sas": relative_path(LAB_SAS_PATH),
-            "vital_sas": relative_path(VITAL_SAS_PATH),
+            "dnam_rdata": str(DNAM_RDATA_PATH.resolve()),
+            "lab_sas": str(LAB_SAS_PATH.resolve()),
+            "vital_sas": str(VITAL_SAS_PATH.resolve()),
         },
         "output": relative_path(OUTPUT_PATH),
         "rdata_objects": ["b.baseline", "pheno.baseline"],

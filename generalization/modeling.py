@@ -44,6 +44,8 @@ RESULT_COLUMNS = (
 
 @dataclass(frozen=True)
 class ElasticNetConfig:
+    """ElasticNetCV search space and solver settings."""
+
     cv_folds: int = 5
     alphas: tuple[float, ...] = field(
         default_factory=lambda: tuple(float(x) for x in np.logspace(0.0, -5.0, 30))
@@ -56,6 +58,8 @@ class ElasticNetConfig:
 
 @dataclass(frozen=True)
 class GeneralizationConfig:
+    """Split, resampling, and estimator settings for one generalization run."""
+
     split_seed: int = 105
     repeat_seed: int = 42
     train_fraction: float = 0.8
@@ -71,6 +75,8 @@ class GeneralizationConfig:
 
 @dataclass(frozen=True)
 class DatasetSpec:
+    """Paths and ordered feature contract for one prepared GEO dataset."""
+
     name: str
     title: str
     domain: str
@@ -80,14 +86,17 @@ class DatasetSpec:
 
 
 def project_path(path: Path) -> Path:
+    """Resolve a path while enforcing repository containment."""
     return ensure_repo_path(path)
 
 
 def config_record(config: GeneralizationConfig) -> dict[str, Any]:
+    """Convert a generalization configuration to a JSON-compatible record."""
     return json.loads(json.dumps(asdict(config)))
 
 
 def log_spaced_training_sizes(n_train: int, config: GeneralizationConfig) -> np.ndarray:
+    """Build the configured unique log-spaced sizes from 10 to the usable maximum."""
     maximum = n_train - config.test_reserve
     if maximum < 10:
         raise ValueError(f"Training pool has only {n_train} samples")
@@ -242,6 +251,7 @@ def _fit_model(
 def validate_result(
     frame: pd.DataFrame, size: int, size_index: int, config: GeneralizationConfig
 ) -> None:
+    """Require a complete finite model-by-resample shard for one size point."""
     expected = {(model, repeat) for model in MODEL_NAMES for repeat in range(config.n_resamples)}
     observed = set(zip(frame["model"], frame["repeat_id"].astype(int), strict=True))
     invalid_grid = observed != expected or len(frame) != len(expected)
@@ -256,6 +266,7 @@ def validate_result(
 
 
 def atomic_write_parquet(frame: pd.DataFrame, output: Path, *, index: bool = False) -> None:
+    """Write a Parquet table through a temporary file and atomic rename."""
     output.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile(dir=output.parent, suffix=".parquet", delete=False) as handle:
         temporary = Path(handle.name)
@@ -267,6 +278,7 @@ def atomic_write_parquet(frame: pd.DataFrame, output: Path, *, index: bool = Fal
 
 
 def atomic_write_json(payload: dict[str, Any], output: Path) -> None:
+    """Write deterministic JSON through a temporary file and atomic rename."""
     output.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile(
         mode="w", dir=output.parent, suffix=".json", encoding="utf-8", delete=False
@@ -294,7 +306,7 @@ def evaluate_training_size(
     *,
     config: GeneralizationConfig | None = None,
 ) -> Path:
-    """Fit/test all five models for one of the 30 parallel size points."""
+    """Fit and test all five models for one configured training-size point."""
     config = config or GeneralizationConfig()
     direct, meta = load_aligned_inputs(spec)
     direct_train, direct_test, meta_train, meta_test = split_and_impute(direct, meta, config)

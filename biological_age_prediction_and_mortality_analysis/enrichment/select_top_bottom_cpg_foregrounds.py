@@ -9,14 +9,14 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from repository_paths import repo_path
+from repository_paths import PROJECT_ROOT, repo_path
 
 from ..config import ENRICHMENT
 from ..provenance import file_record, write_json
 
 DEFAULT_SELECTIONS = Path(__file__).with_name("top_bottom_1000_cpg_weights.csv")
-DEFAULT_MEMBERSHIP = Path("results/enrichment/array_union/platform_membership.csv.gz")
-DEFAULT_OUTPUT = Path("results/enrichment/inputs")
+DEFAULT_MEMBERSHIP = PROJECT_ROOT / "results/enrichment/array_union/platform_membership.csv.gz"
+DEFAULT_OUTPUT = PROJECT_ROOT / "results/enrichment/inputs"
 
 
 TOP_N = int(ENRICHMENT["top_n"])

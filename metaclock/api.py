@@ -5,7 +5,7 @@ from __future__ import annotations
 import platform
 from importlib.metadata import PackageNotFoundError, version
 from os import PathLike
-from typing import Any, Mapping, Sequence
+from typing import TYPE_CHECKING, Any, Mapping, Sequence
 
 import numpy as np
 import pandas as pd
@@ -20,6 +20,9 @@ from .components import (
 )
 from .models import make_estimator, normalize_architecture
 
+if TYPE_CHECKING:
+    from anndata import AnnData
+
 
 def _package_version(distribution: str) -> str:
     try:
@@ -28,7 +31,7 @@ def _package_version(distribution: str) -> str:
         return "not-installed"
 
 
-def _extract_target(adata: Any, target: str) -> np.ndarray:
+def _extract_target(adata: AnnData, target: str) -> np.ndarray:
     if not isinstance(target, str) or not target.strip():
         raise TypeError("target must be a non-empty adata.obs column name.")
     if target not in adata.obs.columns:
@@ -84,6 +87,19 @@ def fit(
         A name returned by ``metaclock.available_architectures()``.
     target
         Numeric ``adata.obs`` target column. Defaults to ``"age"``.
+    pyaging_dir
+        PyAging model-cache directory, or ``None`` to use PyAging's default.
+    batch_size, clean, verbose
+        Values forwarded to PyAging component-clock inference.
+    copy
+        If true, copy in-memory ``AnnData`` before PyAging inference. With the
+        default false, PyAging may update the supplied object in place.
+    random_state
+        Seed used by regressors and shuffled cross-validation where supported.
+    n_jobs
+        Worker count forwarded to regressors that support parallel execution.
+    model_params
+        Overrides passed directly to the final regression estimator.
 
     Returns
     -------
