@@ -1,0 +1,19 @@
+{
+  "change": "figure formatting and labels only; existing coefficients reused without refitting",
+  "source": "/orcd/pool/007/edsun_shared/yncheng/meta_clock_bio/output/pdf/figure4/04_cox_coefficients_standardized_source_data.csv",
+  "historical_estimate_component_count": null,
+  "historical_estimate_component_count_status": "not recoverable from retained aggregate source; this snapshot does not establish a 19-component refit",
+  "current_repo_analysis_code_component_count": 19,
+  "plot_label": {
+    "clinical_phenoage": "Biological Age"
+  },
+  "display_precision": "three significant digits in scientific notation",
+  "software": {
+    "numpy": "2.3.5",
+    "pandas": "2.3.3",
+    "scikit-learn": "1.8.0",
+    "lifelines": "0.30.3",
+    "matplotlib": "3.10.8",
+    "PyMuPDF": "1.28.0"
+  }
+}

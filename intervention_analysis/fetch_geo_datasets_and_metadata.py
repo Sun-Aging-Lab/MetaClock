@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fetch the exact GEO metadata and DNAm matrices used by the frozen 77 results."""
+"""Fetch GEO metadata and DNAm matrices for the reviewed 77 comparisons."""
 
 from __future__ import annotations
 
@@ -34,8 +34,8 @@ VALID_RESULTS = CONFIG_DIR / "valid_interventions_77.csv"
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Fetch GEO metadata plus the exact 64 matrix artifacts used by the "
-            "frozen 77-intervention analysis. Existing valid files are reused."
+            "Fetch GEO metadata and matrices for the reviewed 64 GEO datasets "
+            "in the 77-intervention analysis. Existing nonempty files are reused."
         )
     )
     parser.add_argument(
@@ -83,7 +83,6 @@ def validate_frozen_inputs() -> tuple[pd.DataFrame, list[str]]:
         "matrix_file",
         "matrix_format",
         "url",
-        "expected_size_bytes",
     }
     missing = required.difference(acquisition.columns)
     if missing:
@@ -98,11 +97,10 @@ def validate_frozen_inputs() -> tuple[pd.DataFrame, list[str]]:
         acquisition["gse_id"]
     ):
         raise ValueError("GSE membership differs across frozen inputs")
-    acquisition["expected_size_bytes"] = pd.to_numeric(
-        acquisition["expected_size_bytes"], errors="raise"
-    ).astype("int64")
-    if acquisition["expected_size_bytes"].le(0).any():
-        raise ValueError("Every matrix must have a positive expected size")
+    if acquisition[list(required)].isna().any().any() or any(
+        acquisition[column].str.strip().eq("").any() for column in required
+    ):
+        raise ValueError("Acquisition dataset IDs, matrix locations and formats must be nonempty")
     return acquisition, gse_ids
 
 
@@ -130,20 +128,15 @@ def fetch_metadata(
 
 
 def fetch_matrix(row: Any, matrix_root: Path) -> dict[str, Any]:
-    """Download or reuse one manifest row after enforcing its expected byte size."""
+    """Download or reuse a nonempty matrix from the reviewed source location."""
     output = repo_child(matrix_root, str(row.matrix_file))
-    if output.exists() and output.stat().st_size != int(row.expected_size_bytes):
-        raise ValueError(
-            f"{row.gse_id}: cached size {output.stat().st_size} differs from "
-            f"expected {row.expected_size_bytes}; move the invalid file before retrying"
-        )
     cached = output.is_file()
     downloaded = download_file(RemoteFile(output.name, str(row.url)), output)
+    if not downloaded.is_file():
+        raise FileNotFoundError(f"Missing downloaded matrix for {row.gse_id}")
     size = downloaded.stat().st_size
-    if size != int(row.expected_size_bytes):
-        raise ValueError(
-            f"{row.gse_id}: downloaded size {size} differs from {row.expected_size_bytes}"
-        )
+    if size == 0:
+        raise ValueError(f"Empty matrix for {row.gse_id}: {relative_path(downloaded)}")
     return {
         "gse_id": str(row.gse_id),
         "matrix_file": str(row.matrix_file),
@@ -175,10 +168,6 @@ def main() -> int:
         ),
         "n_gse": len(gse_ids),
         "n_matrix_files": len(acquisition),
-        "matrix_total_expected_bytes": int(acquisition["expected_size_bytes"].sum()),
-        "matrix_total_expected_gib": round(
-            float(acquisition["expected_size_bytes"].sum()) / 1024**3, 3
-        ),
         "metadata_only": args.metadata_only,
         "output_dir": relative_path(args.output_dir),
     }

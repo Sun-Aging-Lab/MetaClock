@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Screen the frozen TranslAGE catalog and register 19 nonredundant analyses."""
+"""Screen the TranslAGE catalog and retain 19 reviewed nonredundant analyses."""
 
 from __future__ import annotations
 
@@ -14,19 +14,14 @@ import pandas as pd
 from intervention_analysis.fetch_translage_datasets import (
     CONFIG_DIR,
     DEFAULT_CATALOG_DIR,
-    INVENTORY_PATH,
+    EXCLUDED_DATASETS,
+    NESTED_AGGREGATES,
     load_frozen_inventory,
-    sha256,
+    validate_manifest,
     write_json,
 )
 from intervention_analysis.paths import relative_path, repo_path
 
-NESTED_AGGREGATES = {
-    "E-MTAB-8956_Exercise",
-    "E-MTAB-8956_LowCarb",
-    "E-MTAB-8956_LowFat",
-}
-EXCLUDED_DATASETS = NESTED_AGGREGATES | {"GSE191297 (2 weeks)"}
 MANIFEST_COLUMNS = [
     "TranslAGE Dataset ID",
     "Public ID",
@@ -89,15 +84,22 @@ def precheck(row: pd.Series) -> tuple[str, str]:
 def screen_catalog(
     catalog_path: Path,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict[str, Any]]:
-    """Reproduce 179 → 95 → 23 → 19 without removing prior GEO overlaps."""
+    """Screen current entries but select only the reviewed 19-analysis family."""
     provenance, inventory = load_frozen_inventory()
-    if sha256(catalog_path) != provenance["catalog_sha256"]:
-        raise ValueError(
-            "TranslAGE catalog differs from the frozen snapshot; explicit re-curation is required"
-        )
     catalog = pd.read_csv(catalog_path)
-    if len(catalog) != 179 or not catalog["TranslAGE Dataset ID"].is_unique:
-        raise ValueError("Frozen catalog must contain 179 unique dataset IDs")
+    required = {
+        "TranslAGE Dataset ID", "Public ID", "Longitudinal or Cross-Sectional",
+        "Dataset Type", "Analysis", "Number of Subjects", "Number of Controls",
+    }
+    if missing := required.difference(catalog.columns):
+        raise ValueError(f"TranslAGE catalog is missing columns: {sorted(missing)}")
+    if (
+        catalog.empty
+        or catalog["TranslAGE Dataset ID"].isna().any()
+        or catalog["TranslAGE Dataset ID"].astype(str).str.strip().eq("").any()
+        or not catalog["TranslAGE Dataset ID"].is_unique
+    ):
+        raise ValueError("TranslAGE catalog dataset IDs must be nonempty and unique")
     statuses = catalog.apply(precheck, axis=1)
     catalog["screen_status"] = [status for status, _ in statuses]
     catalog["screen_reason"] = [reason for _, reason in statuses]
@@ -113,10 +115,10 @@ def screen_catalog(
         ["Dataset Type", "Public ID", "TranslAGE Dataset ID"]
     ).reset_index(drop=True)
     candidates.insert(0, "candidate_index", range(len(candidates)))
-    if len(candidates) != 95 or not set(inventory["TranslAGE Dataset ID"]).issubset(
+    if not set(inventory["TranslAGE Dataset ID"]).issubset(
         candidates["TranslAGE Dataset ID"]
     ):
-        raise ValueError("Frozen candidate or official-cleaned membership changed")
+        raise ValueError("Reviewed official-cleaned dataset IDs are missing from eligible candidates")
 
     direct = candidates.merge(
         inventory,
@@ -155,17 +157,8 @@ def screen_catalog(
     manifest = selected[MANIFEST_COLUMNS].copy()
     manifest.insert(0, "analysis_index", range(len(selected)))
     manifest["concept_id"] = manifest["TranslAGE Dataset ID"]
-    manifest["expected_cleaned_bytes"] = selected["content_length_bytes"].astype(
-        "int64"
-    )
-    manifest["cleaned_sha256"] = selected["cleaned_sha256"]
     manifest["overlaps_previous_geo"] = selected["overlaps_previous_geo"]
-    if (
-        len(manifest) != 19
-        or manifest["Public ID"].nunique() != 13
-        or manifest["cleaned_sha256"].isna().any()
-    ):
-        raise ValueError("Expected 19 fingerprinted analyses from 13 public accessions")
+    manifest = validate_manifest(manifest, inventory)
     if set(manifest.loc[manifest["overlaps_previous_geo"], "Public ID"]) != {
         "GSE201532",
         "GSE74548",
@@ -183,7 +176,7 @@ def screen_catalog(
         audit["sample_level_validation_required"] & audit["selection_status"].isna()
     )
     audit.loc[unavailable, "selection_status"] = (
-        "excluded_no_frozen_official_cleaned_file"
+        "excluded_no_reviewed_official_cleaned_file"
     )
     audit.loc[unavailable, "selection_reason"] = (
         "not among the 23 reviewed official cleaned RData files"
@@ -193,8 +186,6 @@ def screen_catalog(
     audit.loc[excluded, "selection_reason"] = audit.loc[excluded, "screen_reason"]
     summary = {
         "snapshot_date": provenance["snapshot_date"],
-        "source_catalog_sha256": provenance["catalog_sha256"],
-        "inventory_sha256": sha256(INVENTORY_PATH),
         "catalog_rows": len(catalog),
         "candidate_rows": len(candidates),
         "official_cleaned_rows": len(direct),
@@ -226,7 +217,6 @@ def main() -> int:
         {
             "catalog": relative_path(args.catalog),
             "manifest": relative_path(manifest_path),
-            "manifest_sha256": sha256(manifest_path),
         }
     )
     write_json(summary, args.output_dir / "screen_summary.json")

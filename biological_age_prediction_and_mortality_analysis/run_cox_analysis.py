@@ -40,7 +40,7 @@ from .data import (
     numeric_matrix,
     read_analysis_dataset,
 )
-from .plotting import COLORS, LABELS, clean_axis, configure_style, save_vector_pair
+from .plotting import LABELS, clean_axis, configure_style, save_vector_pair
 from .provenance import software_versions
 from .run_biological_age_prediction import fit_oof_elasticnet
 
@@ -300,50 +300,58 @@ def fit_cox_models(predictions: pd.DataFrame) -> pd.DataFrame:
 
 
 def plot_cox(coefficients: pd.DataFrame) -> None:
-    """Draw one forest subplot per adjustment specification."""
+    """Draw the manuscript forest panels with three-significant-digit scientific labels."""
     configure_style()
-    figure, axes = plt.subplots(1, len(COX_PANELS), figsize=(150 / 25.4, 60 / 25.4), sharey=True)
+    figure, axes = plt.subplots(1, len(COX_PANELS), figsize=(90 / 25.4, 50 / 25.4), sharey=True)
+    figure.subplots_adjust(left=0.30, right=0.98, bottom=0.28, top=0.84, wspace=0.28)
     titles = {
-        "prediction_plus_chronological_age_sex": "Prediction + age + sex",
-        "prediction_plus_sex": "Prediction + sex",
-        "prediction_plus_chronological_age": "Prediction + age",
+        "prediction_plus_chronological_age_sex": "Age + sex",
+        "prediction_plus_sex": "Sex",
+        "prediction_plus_chronological_age": "Age",
     }
+    colors = {"bio_metaclock": "#BFDB87", "baseline": "#4D4D4D", "clinical_phenoage": "#CC79A7"}
+    labels = {**LABELS, "bio_metaclock": "MetaClock-\nbiological", "clinical_phenoage": "Biological Age"}
+    y = np.arange(len(MODEL_ORDER))
     for index, (axis, panel) in enumerate(zip(axes, COX_PANELS, strict=True)):
         table = (
             coefficients[coefficients["panel"].eq(panel)].set_index("model").loc[list(MODEL_ORDER)]
         )
-        y = np.arange(len(MODEL_ORDER))
         coefficient = table["coefficient"].to_numpy(float)
-        axis.errorbar(
-            coefficient,
-            y,
-            xerr=np.vstack(
-                [
-                    coefficient - table["ci_lower"].to_numpy(float),
-                    table["ci_upper"].to_numpy(float) - coefficient,
-                ]
-            ),
-            fmt="none",
-            ecolor="#222222",
-            capsize=3,
-            linewidth=0.8,
-        )
-        axis.scatter(
-            coefficient,
-            y,
-            color=[COLORS.get(model, "#CC79A7") for model in MODEL_ORDER],
-            s=28,
-            zorder=2,
-        )
-        axis.axvline(0, color="#666666", linewidth=0.5)
-        axis.set(yticks=y, title=titles[panel], xlabel="Standardized Cox coefficient")
-        axis.set_yticklabels([LABELS[model] for model in MODEL_ORDER])
-        axis.invert_yaxis()
-        clean_axis(axis, grid=False)
-        axis.grid(axis="x", color="#DDDDDD", linewidth=0.2)
+        lower = table["ci_lower"].to_numpy(float)
+        upper = table["ci_upper"].to_numpy(float)
+        for row_index, model in enumerate(MODEL_ORDER):
+            axis.errorbar(
+                coefficient[row_index],
+                y[row_index],
+                xerr=np.array(
+                    [[coefficient[row_index] - lower[row_index]], [upper[row_index] - coefficient[row_index]]]
+                ),
+                fmt="o",
+                color=colors[model],
+                ecolor=colors[model],
+                markersize=2.8,
+                linewidth=0.8,
+                capsize=1.5,
+                markeredgecolor="#222222",
+                markeredgewidth=0.2,
+            )
+            annotation_y = y[row_index] + (0.24 if row_index < 2 else -0.24)
+            axis.text(
+                0.25,
+                annotation_y,
+                f"β={coefficient[row_index]:.2e}",
+                ha="left",
+                va="center",
+                fontsize=6,
+            )
+        axis.axvline(0, color="#777777", linestyle="--", linewidth=0.5)
+        axis.set(xlim=(-0.29, 2.23), xticks=[0, 2], yticks=y, title=titles[panel])
+        axis.tick_params(axis="x", labelsize=8)
         if index == 0:
-            axis.set_ylabel("Age model")
-    figure.tight_layout()
+            axis.set_yticklabels([labels[model] for model in MODEL_ORDER], fontsize=8)
+        clean_axis(axis, grid=False)
+    axes[0].invert_yaxis()
+    figure.supxlabel("Log Hazard Ratio", y=0.07, fontsize=9.75)
     save_vector_pair(figure, OUTPUT_DIR, "04_cox_coefficients_standardized")
 
 

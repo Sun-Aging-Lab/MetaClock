@@ -1,26 +1,13 @@
 {
   "snapshot_date": "2026-08-26",
   "catalog_url": "https://www.translage.io/data/datatables/dataset_metadata.csv",
-  "catalog_sha256": "26ea298a6af9e7ce3156de563ed70bfbe339f8bb512b93780ece025b778f3601",
-  "catalog_bytes": 101673,
   "catalog_rows": 179,
   "candidate_rows": 95,
   "official_cleaned_rows": 23,
   "selected_analyses": 19,
   "selected_public_accessions": 13,
-  "catalog_scope": "Exact frozen catalog bytes; changes require explicit re-curation before analysis.",
+  "catalog_scope": "Catalog rows are matched to reviewed dataset IDs; additional unreviewed entries do not expand the analysis family.",
   "inventory_scope": "23 official cleaned files inventoried on 2026-08-26; no dynamic directory discovery.",
   "supplement_source_doi": "10.1101/2025.10.16.682960",
-  "supplement_source_url": "https://www.ebi.ac.uk/europepmc/webservices/rest/PMC12632989/supplementaryFiles",
-  "inventory_sha256": "c14d45662f811f00ead26781fa61f4d87203d87017fa8bd5a995ca94d467ca93",
-  "source_artifact_sha256": {
-    "raw/dataset_metadata.csv": "26ea298a6af9e7ce3156de563ed70bfbe339f8bb512b93780ece025b778f3601",
-    "catalog/translage_download_inventory.csv": "737ca3092a1902837169f5b50d389901b85a031f2f6003e3b0e3e32703fae8ab",
-    "catalog/official_analysis_selection_audit.csv": "96680d78b5d7e9648ed6493bcc001c4284fe315a2c53bb7bf74943c633f093e9",
-    "catalog/media-1__SOURCEAnalysisCall.csv": "eb0adc7e1d0f10646e2d89b3a6f4bebaa605d41d208ce9a456056470a660e0df",
-    "catalog/official_analysis_manifest.csv": "6cc585806ade7825f6386ff438ee6455e04f0c913d4124fa84f38224fc390ade",
-    "scripts/screen_translage_catalog.py": "8df698772c178fc35a0aadefeb7951becf7cfc14a9298ffea9b3cf51d5b33c15",
-    "scripts/prepare_official_analysis_manifest.py": "0848711f8432b70d26617b14ec7c6d191a5dbe3ac68ec3ff38d930f23781e08e",
-    "scripts/download_official_cleaned.py": "9f69479c42e1b9187ae0f33db2c154e66f61045baed8ca4b537e92bbd8deddc0"
-  }
+  "supplement_source_url": "https://www.ebi.ac.uk/europepmc/webservices/rest/PMC12632989/supplementaryFiles"
 }

@@ -6,11 +6,11 @@ from __future__ import annotations
 import argparse
 import csv
 import gzip
-import hashlib
 import importlib.metadata
 import json
 import re
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -43,15 +43,6 @@ MIN_FINITE_BETA_FRACTION = 0.90
 MIN_IN_RANGE_BETA_FRACTION = 0.99
 MIN_BETA_MEDIAN = 0.02
 MAX_NEAR_ZERO_BETA_FRACTION = 0.95
-
-
-def sha256(path: Path) -> str:
-    """Return the hexadecimal SHA-256 digest of a file."""
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def normalized_probe_id(value: str) -> str:
@@ -329,11 +320,6 @@ def summarize_comparisons(samples: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataF
     use experiment minus control. The returned frames contain comparison-level
     results and the donor-level values used by those tests, respectively.
     """
-    signature_column = (
-        "sample_signature_id"
-        if "sample_signature_id" in samples.columns
-        else "sample_signature_sha256"
-    )
     donor_frames: list[pd.DataFrame] = []
     for comparison_id, sub in samples.groupby("comparison_id", sort=False):
         methods = sub["analysis_method"].drop_duplicates().tolist()
@@ -355,7 +341,6 @@ def summarize_comparisons(samples: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataF
             "comparison_id",
             "gse_id",
             "comparison_name",
-            signature_column,
             "canonical_comparison_id",
             "group",
             "donor_id",
@@ -517,7 +502,6 @@ def summarize_comparisons(samples: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataF
                     if no_age_correction
                     else "within_gse_stratum_prediction_scale"
                 ),
-                signature_column: first[signature_column],
                 "canonical_comparison_id": first["canonical_comparison_id"],
             }
         )
@@ -525,6 +509,7 @@ def summarize_comparisons(samples: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataF
 
 
 def main() -> int:
+    started_at_ns = time.time_ns()
     parser = argparse.ArgumentParser()
     parser.add_argument("--sample-manifest", type=repo_path, required=True)
     parser.add_argument("--matrix-manifest", type=repo_path, required=True)
@@ -535,11 +520,6 @@ def main() -> int:
     parser.add_argument("--pyaging-dir", type=repo_path, default=DEFAULT_PYAGING_DIR)
     parser.add_argument("--pyaging-batch-size", type=int, default=2048)
     parser.add_argument("--min-cpg-coverage", type=float, default=MIN_CPG_COVERAGE)
-    parser.add_argument(
-        "--omit-model-hash",
-        action="store_true",
-        help="Do not calculate or write a model-file hash in run_summary.json.",
-    )
     parser.add_argument(
         "--skip-beta-distribution-qc",
         action="store_true",
@@ -801,6 +781,14 @@ def main() -> int:
         clock_outputs.reset_index(), args.output_dir / "biometa_clock_inputs.csv"
     )
     summary = {
+        "cache_format_version": 1,
+        "started_at_ns": started_at_ns,
+        "input_files": sorted(
+            relative_path(path)
+            for path in {args.sample_manifest, args.matrix_manifest}
+            | {repo_child(args.matrix_root, str(name)) for name in assignments["matrix_file"].unique()}
+        ),
+        "model_parameters": model.parameters,
         "gse_id": args.gse,
         "n_comparisons": len(results),
         "n_unique_samples": len(predictions),
@@ -850,9 +838,6 @@ def main() -> int:
             )
         },
     }
-    if not args.omit_model_hash:
-        summary["model_weights_sha256"] = sha256(model.weights_path)
-        summary["model_metadata_sha256"] = sha256(model.metadata_path)
     write_json_atomic(summary, args.output_dir / "run_summary.json")
     print(json.dumps(summary, indent=2))
     return 0

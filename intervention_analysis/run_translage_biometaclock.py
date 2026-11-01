@@ -4,11 +4,11 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import importlib.metadata
 import json
 import platform
 import re
+import time
 from pathlib import Path
 from typing import Any
 
@@ -25,7 +25,6 @@ from intervention_analysis.run_geo_biometaclock_gse import (
     MIN_FINITE_BETA_FRACTION,
     MIN_IN_RANGE_BETA_FRACTION,
     age_correct_strata,
-    sha256,
     summarize_comparisons,
     write_csv_atomic,
     write_json_atomic,
@@ -328,21 +327,12 @@ def prepare_design(
     selected["analysis_method"] = analysis_method
     selected["age_correction_stratum"] = concept_id
     selected["canonical_comparison_id"] = concept_id
-    signature = hashlib.sha256(
-        "\n".join(
-            selected.sort_values(["sample_id", "group", "timepoint"])[
-                ["sample_id", "donor_id", "group", "timepoint"]
-            ]
-            .astype(str)
-            .agg("|".join, axis=1)
-        ).encode()
-    ).hexdigest()
-    selected["sample_signature_id"] = signature
     selected["estimand"] = estimand
     return selected, analysis_method, estimand, baseline_time, target_time
 
 
 def main() -> int:
+    started_at_ns = time.time_ns()
     """Run beta QC, component clocks, donor tests, and reproducibility outputs."""
     args = parse_args()
     manifest = pd.read_csv(args.manifest)
@@ -353,6 +343,8 @@ def main() -> int:
     dataset_id = str(row["TranslAGE Dataset ID"])
     output_dir = args.output_root / f"{args.task_index:03d}__{safe_id(dataset_id)}"
     output_dir.mkdir(parents=True, exist_ok=True)
+    # A completed summary is written last; a failed rerun must not reuse it.
+    (output_dir / "run_summary.json").unlink(missing_ok=True)
     cleaned_path = repo_child(
         args.data_root / safe_id(dataset_id), str(row["file_name"])
     )
@@ -438,12 +430,14 @@ def main() -> int:
     model_matrix = inputs.fillna(0.0).to_numpy(dtype=np.float64)
     predictions = pd.DataFrame(
         {
+            "gse_id": str(row["Public ID"]),
             "sample_id": methylation.index,
             "predicted_bioage": np.asarray(model.predict(model_matrix), dtype=float),
         }
     )
     analysis_samples = design.merge(
-        predictions, on="sample_id", how="left", validate="many_to_one"
+        predictions[["sample_id", "predicted_bioage"]],
+        on="sample_id", how="left", validate="many_to_one"
     )
     if age_complete:
         analysis_samples, age_fits = age_correct_strata(analysis_samples)
@@ -529,6 +523,10 @@ def main() -> int:
     write_csv_atomic(age_fits, output_dir / "dataset_age_fit.csv")
     write_csv_atomic(qc, output_dir / "matrix_qc.csv")
     summary = {
+        "cache_format_version": 1,
+        "started_at_ns": started_at_ns,
+        "input_files": sorted(relative_path(path) for path in (args.manifest, cleaned_path)),
+        "model_parameters": model.parameters,
         "status": "completed",
         "analysis_index": args.task_index,
         "translage_dataset_id": dataset_id,
@@ -543,13 +541,9 @@ def main() -> int:
         "n_selected_donors": int(design["donor_id"].nunique()),
         "n_missing_time_samples_excluded": n_missing_time_samples_excluded,
         "cleaned_rdata": relative_path(cleaned_path),
-        "cleaned_rdata_sha256": sha256(cleaned_path),
         "model_weights": relative_path(model.weights_path),
-        "model_weights_sha256": sha256(model.weights_path),
         "model_metadata": relative_path(model.metadata_path),
-        "model_metadata_sha256": sha256(model.metadata_path),
         "manifest": relative_path(args.manifest),
-        "manifest_sha256": sha256(args.manifest),
         "pyaging_batch_size": args.pyaging_batch_size,
         "minimum_cpg_coverage": MIN_CPG_COVERAGE,
         "beta_distribution_qc_applied": True,

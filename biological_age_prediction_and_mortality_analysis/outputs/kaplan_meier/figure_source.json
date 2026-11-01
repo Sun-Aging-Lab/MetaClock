@@ -1,0 +1,60 @@
+{
+  "analysis": "InCHIANTI KM; 672 participants; 134 per tail",
+  "component_features": [
+    "dnamphenoage",
+    "hrsinchphenoage",
+    "grimage",
+    "grimage2",
+    "dnamic",
+    "zhangmortality",
+    "systemsage",
+    "systemsageblood",
+    "systemsagebrain",
+    "systemsageheart",
+    "systemsagehormone",
+    "systemsageimmune",
+    "systemsageinflammation",
+    "systemsagekidney",
+    "systemsageliver",
+    "systemsagelung",
+    "systemsagemetabolic",
+    "systemsagemusculoskeletal",
+    "dunedinpace"
+  ],
+  "oof_folds": "biological_age_prediction_and_mortality_analysis/inchianti_km_oof_fold_assignment.csv",
+  "oof_fold_labels": "0..4; shared saved Baseline assignment",
+  "training_order": "numeric participant ID ascending",
+  "adjustment": "pooled prediction ~ 1 + age_years + female, fitted separately per model",
+  "prediction_model": "StandardScaler + ElasticNetCV; l1_ratio=0.5; 30 alphas logspace(0,-5); shuffled five-fold inner CV seeded by outer fold; max_iter=10000; tol=1e-4; selection=cyclic",
+  "feature_matrix_dtype": {
+    "bio_metaclock": "float64",
+    "baseline": "float32"
+  },
+  "baseline_predictions": "reused saved historical OOF predictions; no Baseline retraining for this snapshot",
+  "metaclock_convergence": {
+    "warnings": 255,
+    "final_models_reaching_max_iter": 5
+  },
+  "source": "/orcd/pool/007/edsun_shared/yncheng/meta_clock_bio/inchianti_17component_rerun_20261101/metaclock19_on_baseline_folds/km_age_sex_three_models",
+  "validation": {
+    "metaclock_retrain_max_prediction_difference": 0.0,
+    "shared_fold_mismatches": 0,
+    "logrank_matches_saved_analysis": true
+  },
+  "software": {
+    "numpy": "2.3.5",
+    "pandas": "2.3.3",
+    "scikit-learn": "1.8.0",
+    "lifelines": "0.30.3",
+    "matplotlib": "3.10.8",
+    "PyMuPDF": "1.28.0"
+  },
+  "plot_labels": {
+    "clinical_phenoage": "Biological Age",
+    "groups": {
+      "bottom_20": "20% lowest age-residualized score",
+      "top_20": "20% highest age-residualized score"
+    }
+  },
+  "display_precision": "three significant digits in scientific notation"
+}
