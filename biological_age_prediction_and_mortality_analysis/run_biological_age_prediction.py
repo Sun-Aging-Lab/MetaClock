@@ -4,8 +4,7 @@
 Run ``prepare_inchianti_dataset`` first; ``DATASET_PATH`` points to its output.
 The input is one sample per row and must contain ID, sampleID, age_years,
 clinical_phenoage, clinical_phenoage_complete_case, and all 485,577 InCHIANTI DNAm features.  The
-OOF model uses 19 component clocks; the external refit uses the 17 clocks that
-are available in every external dataset.
+OOF model uses 19 component clocks.
 """
 
 from __future__ import annotations

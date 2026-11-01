@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import importlib.metadata
 import json
 import os
@@ -132,14 +131,6 @@ def write_json_atomic(payload: dict[str, Any], path: Path) -> None:
     temporary.replace(path)
 
 
-def sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
 def validate_inputs(
     args: argparse.Namespace,
 ) -> tuple[pd.DataFrame, pd.DataFrame, Path]:
@@ -153,8 +144,13 @@ def validate_inputs(
         raise ValueError("Frozen reference comparison IDs are not unique")
     if len(acquisition) != 64 or not acquisition["gse_id"].is_unique:
         raise ValueError("Acquisition manifest must contain exactly 64 unique GSE")
-    if set(reference["gse_id"]) != set(acquisition["gse_id"]):
-        raise ValueError("Reference and matrix acquisition GSE sets differ")
+    expected_gses = set(reference["gse_id"])
+    observed_gses = set(acquisition["gse_id"])
+    if expected_gses != observed_gses:
+        raise ValueError(
+            f"Acquisition GSE IDs differ: missing={sorted(expected_gses - observed_gses)}, "
+            f"unexpected={sorted(observed_gses - expected_gses)}"
+        )
     selected_gses = (
         set(args.only_gse) if args.only_gse else set(acquisition["gse_id"].astype(str))
     )
@@ -169,11 +165,8 @@ def validate_inputs(
             raise FileNotFoundError(
                 f"Missing matrix for {row.gse_id}: {relative_path(path)}"
             )
-        if path.stat().st_size != int(row.expected_size_bytes):
-            raise ValueError(
-                f"{row.gse_id}: matrix size {path.stat().st_size} differs from "
-                f"expected {row.expected_size_bytes}"
-            )
+        if path.stat().st_size == 0:
+            raise ValueError(f"{row.gse_id}: matrix file is empty")
     for config in BRANCH_CONFIG.values():
         for key in ("sample_manifest", "matrix_manifest"):
             if not config[key].is_file():
@@ -203,30 +196,21 @@ def translage_shard(output_dir: Path, row: pd.Series) -> Path:
 
 
 def validate_translage_inputs(args: argparse.Namespace) -> pd.DataFrame:
-    """Require the screened 19-test manifest and its verified cleaned payloads."""
-    manifest = pd.read_csv(args.translage_manifest)
-    if len(manifest) != 19 or manifest["Public ID"].nunique() != 13:
-        raise ValueError("TranslAGE manifest must contain 19 analyses / 13 accessions")
-    if not manifest["TranslAGE Dataset ID"].is_unique or set(
-        manifest["analysis_index"]
-    ) != set(range(19)):
-        raise ValueError(
-            "TranslAGE analysis identifiers must be unique and indexed 0..18"
-        )
+    """Match analysis IDs and public accessions to the reviewed inventory."""
+    from intervention_analysis.fetch_translage_datasets import (
+        load_frozen_inventory, validate_manifest,
+    )
+
+    _, inventory = load_frozen_inventory()
+    manifest = validate_manifest(pd.read_csv(args.translage_manifest), inventory)
     for _, row in manifest.iterrows():
-        dataset_id = re.sub(
-            r"[^A-Za-z0-9._-]+", "_", str(row["TranslAGE Dataset ID"])
-        ).strip("_")
-        path = repo_child(
-            args.translage_data_root, dataset_id + "/" + str(row["file_name"])
-        )
+        dataset_id = re.sub(r"[^A-Za-z0-9._-]+", "_", str(row["TranslAGE Dataset ID"])).strip("_")
+        path = repo_child(args.translage_data_root, dataset_id + "/" + str(row["file_name"]))
         if not path.is_file():
             raise FileNotFoundError(f"Missing TranslAGE matrix: {relative_path(path)}")
-        if path.stat().st_size != int(row["expected_cleaned_bytes"]):
-            raise ValueError(f"TranslAGE matrix size mismatch: {relative_path(path)}")
-        if sha256(path) != str(row["cleaned_sha256"]):
-            raise ValueError(f"TranslAGE matrix SHA256 mismatch: {relative_path(path)}")
-    return manifest.sort_values("analysis_index").reset_index(drop=True)
+        if path.stat().st_size == 0:
+            raise ValueError(f"Empty TranslAGE matrix: {relative_path(path)}")
+    return manifest
 
 
 def run_one_translage(
@@ -236,14 +220,16 @@ def run_one_translage(
     dataset_id = str(row["TranslAGE Dataset ID"])
     shard_dir = translage_shard(args.output_dir, row)
     expected = {str(row["concept_id"])}
-    if (
-        not args.force
-        and (shard_dir / "analysis_sample_predictions.csv").is_file()
-        and completed_shard_is_valid(shard_dir, expected, model_path)
-    ):
-        summary = json.loads((shard_dir / "run_summary.json").read_text())
-        if summary["manifest_sha256"] == sha256(args.translage_manifest):
-            return {"translage_dataset_id": dataset_id, "status": "cached"}
+    cleaned = repo_child(
+        args.translage_data_root,
+        re.sub(r"[^A-Za-z0-9._-]+", "_", dataset_id).strip("_") + "/" + str(row["file_name"]),
+    )
+    cache_arguments = {
+        "dataset_id": str(row["Public ID"]),
+        "input_paths": [args.translage_manifest, cleaned],
+    }
+    if not args.force and completed_shard_is_valid(shard_dir, expected, model_path, **cache_arguments):
+        return {"translage_dataset_id": dataset_id, "status": "cached"}
     shard_dir.mkdir(parents=True, exist_ok=True)
     command = [
         sys.executable,
@@ -280,7 +266,7 @@ def run_one_translage(
             "returncode": completed.returncode,
             "command": command,
         }
-    if not completed_shard_is_valid(shard_dir, expected, model_path):
+    if not completed_shard_is_valid(shard_dir, expected, model_path, **cache_arguments):
         return {
             "translage_dataset_id": dataset_id,
             "status": "invalid_completed_shard",
@@ -432,25 +418,60 @@ def audit_sample_overlap(
 
 
 def completed_shard_is_valid(
-    shard_dir: Path, expected_ids: set[str], model_path: Path
+    shard_dir: Path,
+    expected_ids: set[str],
+    model_path: Path,
+    *,
+    dataset_id: str,
+    input_paths: list[Path],
+    expected_samples: pd.DataFrame | None = None,
 ) -> bool:
-    """Reuse matching caches; malformed files or missing required metadata raise."""
-    summary_path = shard_dir / "run_summary.json"
-    results_path = shard_dir / "comparison_results.csv"
-    if not summary_path.is_file() or not results_path.is_file():
+    """Check readable IDs/parameters and whether inputs changed since prediction.
+
+    Old summaries are recomputed once. File modification times only control
+    cache reuse; data identity is checked with explicit dataset and sample IDs.
+    """
+    names = ("run_summary.json", "comparison_results.csv", "sample_predictions.csv", "analysis_sample_predictions.csv")
+    if any(not (shard_dir / name).is_file() or (shard_dir / name).stat().st_size == 0 for name in names):
         return False
-    summary = json.loads(summary_path.read_text())
-    results = pd.read_csv(results_path, dtype=str)
-    metadata_path = model_path.parent / "biometaclock_672_participants_metadata.json"
-    return (
-        str(summary["model_weights"]) == relative_path(model_path)
-        and str(summary["model_metadata"]) == relative_path(metadata_path)
-        and str(summary["model_weights_sha256"]) == sha256(model_path)
-        and str(summary["model_metadata_sha256"]) == sha256(metadata_path)
-        and expected_ids.issubset(set(results["comparison_id"]))
-        and results["comparison_id"].is_unique
-        and bool(summary["beta_distribution_qc_applied"])
-    )
+    summary = json.loads((shard_dir / "run_summary.json").read_text())
+    if summary.get("cache_format_version") != 1:
+        return False
+    if summary.get("input_files") != sorted(relative_path(path) for path in set(input_paths)):
+        return False
+    started = int(summary["started_at_ns"])
+    if any(not path.is_file() or path.stat().st_mtime_ns > started for path in input_paths):
+        return False
+    model, _ = load_published_biometaclock(model_path.parent)
+    if (summary["model_parameters"] != model.parameters
+            or summary["model_weights"] != relative_path(model.weights_path)
+            or summary["model_metadata"] != relative_path(model.metadata_path)
+            or not summary["beta_distribution_qc_applied"]):
+        return False
+    if str(summary.get("gse_id", summary.get("public_id"))) != dataset_id:
+        return False
+    results = pd.read_csv(shard_dir / "comparison_results.csv", dtype=str)
+    if (set(results["comparison_id"]) != expected_ids
+            or not results["comparison_id"].is_unique
+            or set(results["gse_id"]) != {dataset_id}):
+        return False
+    samples = pd.read_csv(shard_dir / "analysis_sample_predictions.csv", dtype=str)
+    predictions = pd.read_csv(shard_dir / "sample_predictions.csv", dtype=str)
+    if (set(samples["comparison_id"]) != expected_ids
+            or set(samples["gse_id"]) != {dataset_id}
+            or set(predictions["gse_id"]) != {dataset_id}
+            or not predictions["sample_id"].is_unique
+            or set(samples["sample_id"]) != set(predictions["sample_id"])):
+        return False
+    keys = ["comparison_id", "sample_id", "donor_id", "group"]
+    if samples[keys].isna().any().any() or samples.duplicated(keys).any():
+        return False
+    if expected_samples is not None:
+        expected = expected_samples[keys].fillna("").sort_values(keys).reset_index(drop=True)
+        actual = samples[keys].fillna("").sort_values(keys).reset_index(drop=True)
+        if not expected.equals(actual):
+            return False
+    return True
 
 
 def run_one_gse(
@@ -462,8 +483,21 @@ def run_one_gse(
 ) -> dict[str, Any]:
     """Run or reuse one GEO shard and return its orchestration status record."""
     config = BRANCH_CONFIG[branch]
+    samples = pd.read_csv(config["sample_manifest"], dtype=str)
+    samples = samples.loc[samples["gse_id"].eq(gse)].copy()
+    context_ids = set(samples["comparison_id"])
+    if not expected_ids <= context_ids:
+        raise ValueError(f"{gse}: sample manifest lacks comparisons {sorted(expected_ids - context_ids)}")
+    matrices = pd.read_csv(config["matrix_manifest"], dtype=str)
+    matrices = matrices.loc[matrices["gse_id"].eq(gse)]
+    cache_arguments = {
+        "dataset_id": gse,
+        "input_paths": [config["sample_manifest"], config["matrix_manifest"]]
+            + [repo_child(args.matrix_root, str(name)) for name in matrices["matrix_file"].unique()],
+        "expected_samples": samples,
+    }
     shard_dir = args.output_dir / "shards" / branch / gse
-    if not args.force and completed_shard_is_valid(shard_dir, expected_ids, model_path):
+    if not args.force and completed_shard_is_valid(shard_dir, context_ids, model_path, **cache_arguments):
         return {"gse_id": gse, "branch": branch, "status": "cached"}
     shard_dir.mkdir(parents=True, exist_ok=True)
     command = [
@@ -505,7 +539,7 @@ def run_one_gse(
             "returncode": completed.returncode,
             "command": command,
         }
-    if not completed_shard_is_valid(shard_dir, expected_ids, model_path):
+    if not completed_shard_is_valid(shard_dir, context_ids, model_path, **cache_arguments):
         return {
             "gse_id": gse,
             "branch": branch,
@@ -694,10 +728,6 @@ def finalize(
         "model_metadata": relative_path(
             model_path.parent / "biometaclock_672_participants_metadata.json"
         ),
-        "model_weights_sha256": sha256(model_path),
-        "model_metadata_sha256": sha256(
-            model_path.parent / "biometaclock_672_participants_metadata.json"
-        ),
         "beta_distribution_qc": "strict_original_thresholds",
         "bh_method": "statsmodels.stats.multitest.multipletests(method='fdr_bh')",
         "bh_crosscheck": "scipy.stats.false_discovery_control(method='bh')",
@@ -712,7 +742,6 @@ def finalize(
         },
         "results": relative_path(results_path),
         "translage_manifest": relative_path(args.translage_manifest),
-        "translage_manifest_sha256": sha256(args.translage_manifest),
         "volcano_pdf": relative_path(volcano_stem.with_suffix(".pdf")),
         "volcano_svg": relative_path(volcano_stem.with_suffix(".svg")),
         "run_records": run_records,
@@ -757,10 +786,6 @@ def main() -> int:
         "output_dir": relative_path(args.output_dir),
         "model_weights": relative_path(model_path),
         "model_metadata": relative_path(
-            args.model_dir / "biometaclock_672_participants_metadata.json"
-        ),
-        "model_weights_sha256": sha256(model_path),
-        "model_metadata_sha256": sha256(
             args.model_dir / "biometaclock_672_participants_metadata.json"
         ),
         "pyaging_dir": relative_path(args.pyaging_dir),

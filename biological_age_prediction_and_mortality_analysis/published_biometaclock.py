@@ -31,6 +31,15 @@ class PublishedBioMetaClock:
     def n_features_in_(self) -> int:
         return len(self.features)
 
+    @property
+    def parameters(self) -> dict[str, object]:
+        """Readable prediction parameters saved with reusable results."""
+        return {
+            "features": list(self.features),
+            "coefficients": self.coefficients.tolist(),
+            "intercept": self.intercept,
+        }
+
     def predict(self, matrix: np.ndarray) -> np.ndarray:
         values = np.asarray(matrix, dtype=np.float64)
         if values.ndim != 2 or values.shape[1] != self.n_features_in_:

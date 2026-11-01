@@ -32,9 +32,7 @@ python -m generalization.tissue.plot_tissue_generalization
 
 The one-dataset Slurm files are `GSE175458_lung.sbatch`,
 `GSE232891_saliva.sbatch`, and `GSE287331_breast.sbatch`. The three preparation
-commands accept the matching repeatable `--gse` option. `--data-root` and
-`--cache-dir` provide explicit location overrides; run `--help` for force and
-batch-size controls.
+commands accept the matching repeatable `--gse` option. 
 
 ## Species input and workflow
 

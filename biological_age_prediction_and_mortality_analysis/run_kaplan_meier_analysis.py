@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Train five-fold OOF age models and draw age-corrected KM curves.
+"""Train five-fold OOF age models and draw age/sex-corrected KM curves.
 
 Run ``prepare_inchianti_dataset`` first; ``DATASET_PATH`` points to its output.
 The combined InCHIANTI table must include the biological-age columns/CpGs
 and ``INTV_MOR``: wave 0 is alive/censored and waves 4, 5, and 6 are deaths. One deterministic baseline DNAm sample is used
-per participant and mapped to the fixed formal Figure 4 OOF assignment.
+per participant and mapped to the saved Baseline KM OOF assignment shared by
+the 19-component MetaClock and Baseline predictors.
 """
 
 from __future__ import annotations
@@ -28,7 +29,6 @@ from sklearn.preprocessing import StandardScaler
 from repository_paths import relative_path
 
 from .config import (
-    INCHIANTI_OOF_FOLD_ASSIGNMENT_PATH,
     INCHIANTI_PARTICIPANTS,
     OOF_COMPONENTS,
 )
@@ -54,6 +54,7 @@ DATASET_PATH = (
 )
 OUTPUT_DIR = Path(__file__).resolve().parent / "outputs" / "kaplan_meier"
 PYAGING_CACHE_DIR = Path(__file__).resolve().parent / "pyaging_data"
+KM_FOLD_ASSIGNMENT_PATH = Path(__file__).with_name("inchianti_km_oof_fold_assignment.csv")
 
 
 # --- Fixed formal parameters ---
@@ -71,7 +72,11 @@ ALPHAS = np.logspace(0, -5, 30)
 TRAINED_MODELS = ("bio_metaclock", "baseline")
 MODEL_ORDER = (*TRAINED_MODELS, "clinical_phenoage")
 GROUP_ORDER = ("bottom_20", "top_20")
-GROUP_COLORS = {"bottom_20": "#E64B35", "top_20": "#4DBBD5"}
+GROUP_COLORS = {"bottom_20": "#C96B6B", "top_20": "#5B7FAE"}
+GROUP_LABELS = {
+    "bottom_20": "20% lowest age-residualized score",
+    "top_20": "20% highest age-residualized score",
+}
 REQUIRED_COLUMNS = {
     "ID", "sampleID", "age_years", TARGET, COMPLETE_CASE, "INTV_MOR", "sex_male"
 }
@@ -100,17 +105,20 @@ def prepare_cohort(frame: pd.DataFrame) -> pd.DataFrame:
     for column in ("age_years", TARGET, "INTV_MOR", "sex_male"):
         cohort[column] = pd.to_numeric(cohort[column], errors="coerce")
     cohort = cohort.dropna(subset=["ID", "sampleID", "age_years", TARGET, "INTV_MOR"])
+    cohort["_numeric_id"] = pd.to_numeric(cohort["ID"], errors="raise")
     suffix = pd.to_numeric(cohort["sampleID"].str.extract(r"(\d+)$", expand=False), errors="coerce")
     cohort["_suffix"] = suffix.fillna(np.inf)
     cohort = (
-        cohort.sort_values(["ID", "_suffix", "sampleID"], kind="mergesort")
+        cohort.sort_values(["_numeric_id", "_suffix", "sampleID"], kind="mergesort")
         .drop_duplicates("ID", keep="first")
-        .drop(columns="_suffix")
+        .drop(columns=["_numeric_id", "_suffix"])
         .reset_index(drop=True)
     )
     cohort = cohort[
         cohort["INTV_MOR"].eq(TRAIN_WAVE) | cohort["INTV_MOR"].isin(DEATH_WAVES)
     ].reset_index(drop=True)
+    if not cohort["sex_male"].isin([0, 1]).all():
+        raise ValueError("KM age/sex correction requires sex_male coded 0 or 1 for every participant.")
     cohort["km_event"] = cohort["INTV_MOR"].isin(DEATH_WAVES).astype(int)
     cohort["km_time"] = np.where(cohort["km_event"].eq(1), cohort["INTV_MOR"], ALIVE_CENSOR_TIME)
     cohort["event_group"] = np.where(cohort["km_event"].eq(1), "vital", "control")
@@ -126,20 +134,12 @@ def cpg_columns(frame: pd.DataFrame) -> list[str]:
     return dnam_feature_columns(frame)
 
 
-# --- KM-specific 10-year age-bin outer folds ---
+# --- Saved Baseline KM outer folds ---
 
 
-def assign_km_folds(cohort: pd.DataFrame, seed: int = SEED) -> tuple[np.ndarray, pd.DataFrame]:
-    """Randomized round-robin assignment within 10-year participant age bins."""
-    table = cohort[["ID", "age_years", "km_event"]].copy()
-    table["age_bin"] = (table["age_years"] // AGE_BIN_YEARS * AGE_BIN_YEARS).astype(int)
-    folds = np.full(len(table), -1, dtype=int)
-    rng = np.random.default_rng(seed)
-    for _, subset in table.groupby("age_bin", sort=True):
-        positions = subset.index.to_numpy(dtype=int)
-        rng.shuffle(positions)
-        labels = np.arange(len(positions), dtype=int) % N_FOLDS
-        folds[positions] = labels
+def assign_km_folds(cohort: pd.DataFrame) -> tuple[np.ndarray, pd.DataFrame]:
+    """Map donors to the saved Baseline folds used by both KM predictors."""
+    folds = fixed_figure4_oof_folds(cohort, path=KM_FOLD_ASSIGNMENT_PATH)
     summary = summarize_km_folds(cohort, folds)
     return folds, summary
 
@@ -247,14 +247,14 @@ def train_oof_predictions(
             model = fit_km_prediction_model(designs[model_name][train], y[train], SEED + fold)
             joblib.dump(model, model_dir / f"{model_name}_fold{fold + 1}.joblib")
             output = cohort.loc[
-                test, ["ID", "sampleID", "age_years", TARGET, "INTV_MOR", "km_time", "km_event"]
+                test, ["ID", "sampleID", "age_years", "sex_male", TARGET, "INTV_MOR", "km_time", "km_event"]
             ].copy()
             output["fold"] = fold + 1
             output["model"] = model_name
             output["prediction"] = model.predict(designs[model_name][test])
             outputs.append(output)
         clinical = cohort.loc[
-            test, ["ID", "sampleID", "age_years", TARGET, "INTV_MOR", "km_time", "km_event"]
+            test, ["ID", "sampleID", "age_years", "sex_male", TARGET, "INTV_MOR", "km_time", "km_event"]
         ].copy()
         clinical["fold"] = fold + 1
         clinical["model"] = "clinical_phenoage"
@@ -268,26 +268,29 @@ def train_oof_predictions(
     return predictions, diagnostics
 
 
-# --- Pooled age correction, top/bottom 20%, KM, and log-rank ---
+# --- Pooled age/sex correction, top/bottom 20%, KM, and log-rank ---
 
 
-def age_correct_predictions(predictions: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Remove each model's pooled linear relationship between age and prediction."""
+def age_sex_correct_predictions(predictions: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Fit pooled prediction ~ 1 + age_years + female separately for each model."""
     corrected = predictions.copy()
-    corrected["age_corrected_prediction"] = np.nan
+    corrected["age_sex_corrected_prediction"] = np.nan
+    if not corrected["sex_male"].isin([0, 1]).all():
+        raise ValueError("KM age/sex correction requires sex_male coded 0 or 1.")
     rows: list[dict[str, object]] = []
     for model, subset in corrected.groupby("model", sort=False):
-        age = subset["age_years"].to_numpy(float)
+        covariates = subset[["age_years"]].assign(female=1.0 - subset["sex_male"])
         pred = subset["prediction"].to_numpy(float)
-        fit = LinearRegression().fit(age[:, None], pred)
-        residual = pred - fit.predict(age[:, None])
-        corrected.loc[subset.index, "age_corrected_prediction"] = residual
+        fit = LinearRegression().fit(covariates, pred)
+        residual = pred - fit.predict(covariates)
+        corrected.loc[subset.index, "age_sex_corrected_prediction"] = residual
         rows.append(
             {
                 "model": model,
                 "age_coef": float(fit.coef_[0]),
+                "female_coef": float(fit.coef_[1]),
                 "intercept": float(fit.intercept_),
-                "r2_age_explained": float(fit.score(age[:, None], pred)),
+                "r2_age_sex_explained": float(fit.score(covariates, pred)),
                 "n_fit": len(subset),
             }
         )
@@ -299,7 +302,7 @@ def tail_groups(predictions: pd.DataFrame) -> pd.DataFrame:
     outputs: list[pd.DataFrame] = []
     for model in MODEL_ORDER:
         data = predictions[predictions["model"].eq(model)].sort_values(
-            ["age_corrected_prediction", "sampleID"], kind="mergesort"
+            ["age_sex_corrected_prediction", "sampleID"], kind="mergesort"
         )
         n_tail = int(np.floor(len(data) * TAIL_FRACTION))
         if n_tail < 1:
@@ -334,7 +337,7 @@ def fit_km_curves(assignments: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame
             curve["ci_upper"] = confidence.iloc[:, 1].to_numpy(float)
             curve.insert(0, "bioage_group", group)
             curve.insert(0, "model", model)
-            curve.insert(0, "grouping", "age_corrected")
+            curve.insert(0, "grouping", "age_sex_corrected")
             curve["n_group"] = len(data)
             curve["n_events_group"] = int(data["km_event"].sum())
             curves.append(curve)
@@ -348,7 +351,7 @@ def fit_km_curves(assignments: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame
         observed_top, expected_top, variance = logrank_supporting_statistics(low, high)
         tests.append(
             {
-                "grouping": "age_corrected",
+                "grouping": "age_sex_corrected",
                 "model": model,
                 "bottom_20_n": len(low),
                 "bottom_20_events": int(low["km_event"].sum()),
@@ -400,45 +403,64 @@ def logrank_supporting_statistics(
 
 
 def plot_km(curves: pd.DataFrame, tests: pd.DataFrame) -> None:
-    """Draw top/bottom 20% age-corrected KM curves with 95% CIs."""
+    """Draw the manuscript age/sex-corrected KM curves with 95% CIs."""
     configure_style()
-    figure, axes = plt.subplots(1, len(MODEL_ORDER), figsize=(150 / 25.4, 55 / 25.4), sharey=True)
-    for index, (axis, model) in enumerate(zip(axes, MODEL_ORDER, strict=True)):
+    figure, axes = plt.subplots(1, len(MODEL_ORDER), figsize=(100 / 25.4, 50 / 25.4), sharey=True)
+    figure.subplots_adjust(left=0.12, right=0.961, bottom=0.23, top=0.70, wspace=0.18)
+    labels = {**LABELS, "clinical_phenoage": "Biological Age"}
+    handles = []
+    for axis, model in zip(axes, MODEL_ORDER, strict=True):
+        model_curves = curves[curves["model"].eq(model)]
         for group in GROUP_ORDER:
-            curve = curves[curves["model"].eq(model) & curves["bioage_group"].eq(group)]
-            axis.step(
+            curve = model_curves[model_curves["bioage_group"].eq(group)].sort_values("time")
+            line = axis.step(
                 curve["time"],
                 curve["survival"],
                 where="post",
                 color=GROUP_COLORS[group],
-                label=group.replace("_", " "),
-            )
+                linewidth=0.5,
+                label=GROUP_LABELS[group],
+            )[0]
             axis.fill_between(
                 curve["time"],
                 curve["ci_lower"],
                 curve["ci_upper"],
                 step="post",
                 color=GROUP_COLORS[group],
-                alpha=0.16,
+                alpha=0.14,
                 linewidth=0,
             )
+            if model == MODEL_ORDER[0]:
+                handles.append(line)
         p_value = float(tests.loc[tests["model"].eq(model), "logrank_p_value"].iloc[0])
-        axis.set(
-            title=f"{LABELS[model]}\nlog-rank p={p_value:.3g}",
-            xlabel="Follow-up wave",
-            xlim=(0, 6.05),
-            ylim=(-0.03, 1.03),
+        wave_lines = []
+        for wave in (4, 5, 6):
+            survival = {}
+            for group in GROUP_ORDER:
+                group_curve = model_curves[model_curves["bioage_group"].eq(group)].sort_values("time")
+                survival[group] = float(group_curve.loc[group_curve["time"].le(wave), "survival"].iloc[-1])
+            difference = int(np.rint(100 * (survival["bottom_20"] - survival["top_20"])))
+            wave_lines.append(f"ΔW{wave}: {difference:+d} pp")
+        axis.text(
+            0.25, 0.12, "\n".join([f"logrank p={p_value:.2e}", *wave_lines]),
+            ha="left", va="bottom", fontsize=6,
         )
-        if index == 0:
-            axis.set_ylabel("Kaplan–Meier survival")
-        axis.legend(frameon=False)
-        clean_axis(axis)
-    figure.tight_layout()
-    save_vector_pair(figure, OUTPUT_DIR, "05_km_age_corrected_top_bottom20")
+        axis.set_title(labels[model], pad=3)
+        axis.set(xlim=(0, 6.3), ylim=(0, 1.03), xticks=[0, 2, 4, 6], yticks=np.arange(0, 1.01, 0.2))
+        axis.tick_params(axis="both", labelsize=8)
+        clean_axis(axis, grid=False)
+    axes[0].set_ylabel("Survival")
+    figure.supxlabel("Follow-up Waves", y=0.03, fontsize=9.75)
+    figure.legend(
+        handles, [GROUP_LABELS[group] for group in GROUP_ORDER],
+        loc="upper center", bbox_to_anchor=(0.5, 0.91), ncol=2,
+        frameon=False, fontsize=6, handlelength=2.5, columnspacing=2.5,
+    )
+    save_vector_pair(figure, OUTPUT_DIR, "05_km_curves")
 
 
 def main() -> int:
-    """Prepare FU4-6 endpoint, train OOF predictors, age-correct, and plot KM."""
+    """Prepare FU4-6 endpoint, train OOF predictors, remove age/sex effects, and plot."""
     cohort = prepare_cohort(read_dataset(DATASET_PATH))
     if len(cohort) != INCHIANTI_PARTICIPANTS:
         raise ValueError(
@@ -452,15 +474,15 @@ def main() -> int:
         ),
         "baseline": numeric_matrix(cohort, cpgs),
     }
-    folds = fixed_figure4_oof_folds(cohort)
+    folds, _ = assign_km_folds(cohort)
     predictions, diagnostics = train_oof_predictions(cohort, designs, folds=folds)
-    corrected, age_fits = age_correct_predictions(predictions)
+    corrected, age_fits = age_sex_correct_predictions(predictions)
     assignments = tail_groups(corrected)
     curves, tests = fit_km_curves(assignments)
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     diagnostics.to_csv(OUTPUT_DIR / "km_fold_diagnostics.csv", index=False)
     corrected.to_csv(OUTPUT_DIR / "km_oof_predictions.csv", index=False)
-    age_fits.to_csv(OUTPUT_DIR / "km_age_correction_fits.csv", index=False)
+    age_fits.to_csv(OUTPUT_DIR / "km_age_sex_correction_fits.csv", index=False)
     assignments.to_csv(OUTPUT_DIR / "km_top_bottom20_assignments.csv", index=False)
     curves.to_csv(OUTPUT_DIR / "km_curve_points.csv", index=False)
     tests.to_csv(OUTPUT_DIR / "km_logrank_tests.csv", index=False)
@@ -468,16 +490,20 @@ def main() -> int:
         json.dumps(
             {
                 "endpoint": "INTV_MOR: 0 alive/censored; death waves 4, 5, 6",
-                "outer_folds": "fixed formal Figure 4 donor-level OOF assignment",
+                "outer_folds": "saved Baseline KM donor folds shared by both trained models",
                 "oof_fold_assignment": {
-                    "path": relative_path(INCHIANTI_OOF_FOLD_ASSIGNMENT_PATH),
+                    "path": relative_path(KM_FOLD_ASSIGNMENT_PATH),
                     "assignment_labels_internal": list(range(N_FOLDS)),
                     "output_fold_labels": list(range(1, N_FOLDS + 1)),
                 },
                 "prediction_model": (
-                    "StandardScaler + ElasticNetCV; max_iter=10000; no second refit"
+                    "StandardScaler + ElasticNetCV; l1_ratio=0.5; 30 alphas from 1 to 1e-5; "
+                    "shuffled five-fold inner CV seeded by outer fold; max_iter=10000; "
+                    "tol=1e-4; selection=cyclic; no second refit"
                 ),
-                "age_correction": "pooled OOF linear residual within model",
+                "training_order": "numeric participant ID ascending",
+                "feature_matrix_dtype": {name: str(matrix.dtype) for name, matrix in designs.items()},
+                "age_sex_correction": "pooled prediction ~ 1 + age_years + female within model",
                 "tails": "deterministic bottom/top 20% within model",
                 "models": list(MODEL_ORDER),
                 "bio_metaclock_components": list(OOF_COMPONENTS),

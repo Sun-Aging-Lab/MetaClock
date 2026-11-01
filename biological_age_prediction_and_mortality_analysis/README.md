@@ -21,8 +21,7 @@ These inputs may be outside the repository. Build the shared table once:
 ## 1. Biological-age prediction
 
 Input: one sample per row with `ID`, `sampleID`, `age_years`,
-`clinical_phenoage`, `clinical_phenoage_complete_case`, and the complete ordered
-485,577-feature DNAm manifest. The donor-to-fold mapping is pinned in
+`clinical_phenoage`, `clinical_phenoage_complete_case`, and DNAm features. The donor-to-fold mapping is pinned in
 `inchianti_oof_fold_assignment.csv`, validated and mapped by donor ID
 rather than regenerated from input row order.
 
@@ -33,8 +32,7 @@ python -m biological_age_prediction_and_mortality_analysis.run_biological_age_pr
 ## 2. Duplicate-sample reliability
 
 Run script 1 first. This entry point reuses its participant-grouped OOF
-predictions, selects participants with exactly two complete-case DNAm samples,
-and summarizes the 44 BioMeta and direct-baseline replicate pairs.
+predictions, selects participants with exactly two complete-case DNAm samples.
 
 ```bash
 python -m biological_age_prediction_and_mortality_analysis.run_duplicate_sample_reliability
@@ -60,8 +58,7 @@ python -m biological_age_prediction_and_mortality_analysis.run_external_disease_
 
 Input: the script-1 columns plus `survival_time_years`, `event`, and
 `sex_male`.  The script selects one baseline sample per participant, assigns
-the fixed Figure donor folds, trains the 19-component BioMeta and the
-full 485,577-feature direct baseline in five folds,
+the fixed Figure donor folds, trains the 19-component BioMeta and the direct baseline in five folds,
 uses Figure 4 panel-1 OOF ElasticNetCV configuration, and fits the
 three pooled-OOF Cox specifications after z-scoring every included covariate.
 
