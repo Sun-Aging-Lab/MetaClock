@@ -21,6 +21,7 @@ from .species_config import (
     GSE223748_BETA_PATH,
     GSE223748_SERIES_PATH,
     INPUT_ROOT,
+    INPUT_CONFIG_ID,
     LATIN_TO_MODEL,
     POOLED_COMPONENT,
     SPECIES,
@@ -95,9 +96,12 @@ def add_transformed_age(metadata: pd.DataFrame) -> pd.DataFrame:
         raise ValueError("Gestation table contains duplicated species")
     gestation = pd.to_numeric(
         life_history.set_index("species")["gestation_years"], errors="raise"
-    ).round(GESTATION_DECIMALS)
+    )
     frame = metadata.copy()
     frame["gestation_years"] = frame["organism"].map(gestation)
+    rounded_species = (set(LATIN_TO_MODEL) - {"Canis lupus familiaris"}) | {"Delphinapterus leucas"}
+    rounded = frame["organism"].isin(rounded_species)
+    frame.loc[rounded, "gestation_years"] = frame.loc[rounded, "gestation_years"].round(GESTATION_DECIMALS)
     frame["relative_age"] = (
         (frame["age_years"] + frame["gestation_years"])
         / (frame["maximum_lifespan_years"] + frame["gestation_years"])
@@ -180,6 +184,7 @@ def prepare_inputs() -> None:
     summaries: list[dict[str, object]] = []
     for source, source_records in records.items():
         full = sample_by_probe(matrix, source_records)
+        full.attrs["input_config_id"] = INPUT_CONFIG_ID
         direct_path = direct_input_path(source)
         direct_path.parent.mkdir(parents=True, exist_ok=True)
         full.loc[:, [TARGET, *cpgs]].to_parquet(direct_path, compression="zstd")
@@ -200,10 +205,15 @@ def prepare_inputs() -> None:
         json.dumps(
             {
                 "dataset": "GSE223748",
+                "input_config_id": INPUT_CONFIG_ID,
                 "beta_matrix": relative_path(GSE223748_BETA_PATH),
                 "series_metadata": relative_path(GSE223748_SERIES_PATH),
                 "target_transform": "-log(-log((age + gestation)/(maximum_lifespan + gestation)))",
-                "gestation_precision_decimals": GESTATION_DECIMALS,
+                "gestation_precision": {
+                    "rounded_decimals": GESTATION_DECIMALS,
+                    "rounded_species": sorted((set(LATIN_TO_MODEL) - {"Canis lupus familiaris"}) | {"Delphinapterus leucas"}),
+                    "other_species": "full table precision",
+                },
                 "pooled_rule": "valid non-target species only; all ten target species excluded",
                 "sources": summaries,
             },

@@ -11,6 +11,9 @@ import pandas as pd
 
 from .species_config import (
     POOLED_COMPONENT,
+    COMPONENT_ORDER,
+    LOO_CONFIG_ID,
+    INPUT_CONFIG_ID,
     SPECIES,
     direct_input_path,
     loo_feature_path,
@@ -22,15 +25,20 @@ TARGET = "age"
 
 def build_loo_features(target_species: str) -> pd.DataFrame:
     """Apply only non-self source models to one GSE-derived target species."""
+    if target_species not in SPECIES:
+        raise ValueError(f"Unknown target species: {target_species}")
     direct = pd.read_parquet(direct_input_path(target_species))
+    if direct.attrs.get("input_config_id") != INPUT_CONFIG_ID:
+        raise ValueError("Species inputs use an outdated configuration; prepare them again")
     direct.index = direct.index.astype(str)
-    external = [species for species in SPECIES if species != target_species]
+    external = [species for species in COMPONENT_ORDER if species != target_species]
     output = pd.DataFrame({TARGET: direct[TARGET].to_numpy(dtype=float)}, index=direct.index)
     for source in [*external, POOLED_COMPONENT]:
         output[f"{source}_elasticnetcv"] = predict_elasticnetcv(direct, source)
     if output.isna().any(axis=None) or not np.isfinite(output.to_numpy(dtype=float)).all():
         raise ValueError(f"Non-finite LOO features for {target_species}")
     output.attrs["component_config_id"] = COMPONENT_CONFIG_ID
+    output.attrs["loo_config_id"] = LOO_CONFIG_ID
     return output
 
 
@@ -46,8 +54,9 @@ def main() -> int:
         json.dumps(
             {"target_species": args.species,
              "component_config_id": COMPONENT_CONFIG_ID,
-             "elasticnetcv_sources": [*[_ for _ in SPECIES if _ != args.species], POOLED_COMPONENT],
-             "evolution_sources": [_ for _ in SPECIES if _ != args.species],
+             "loo_config_id": LOO_CONFIG_ID,
+             "elasticnetcv_sources": [*[_ for _ in COMPONENT_ORDER if _ != args.species], POOLED_COMPONENT],
+             "evolution_sources": [_ for _ in COMPONENT_ORDER if _ != args.species],
              "target_component_excluded": True, "samples": len(output)},
             indent=2,
         ) + "\n",

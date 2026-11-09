@@ -1,16 +1,12 @@
 #!/usr/bin/env python3
-"""Train five-fold OOF age models, fit standardized Cox models, and plot.
+"""Fit standardized Cox models from shared participant-level OOF predictions.
 
-Run ``prepare_inchianti_dataset`` first; ``DATASET_PATH`` points to its output.
-The row-oriented table must contain the biological age columns/CpGs plus
-``survival_time_years``, ``event``, and ``sex_male``.
-All Cox estimates use pooled participant-level OOF predictions; the observed
-clinical PhenoAge comparator is never trained on its own outcome.
+Run the biological-age prediction workflow first. The same primary-profile
+OOF scores are used for performance, Cox and Kaplan–Meier analyses.
 """
 
 from __future__ import annotations
 
-import gc
 import json
 from pathlib import Path
 
@@ -20,14 +16,10 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from sklearn.model_selection import StratifiedKFold
-from sklearn.pipeline import Pipeline
-
-from repository_paths import relative_path
+from sklearn.preprocessing import StandardScaler
 
 from .config import (
     INCHIANTI_COX_EVENTS,
-    INCHIANTI_OOF_FOLD_ASSIGNMENT_PATH,
     INCHIANTI_PARTICIPANTS,
     OOF_COMPONENTS,
 )
@@ -35,14 +27,13 @@ from .data import (
     complete_case_mask as parse_complete_case_mask,
 )
 from .data import (
-    dnam_feature_columns,
-    fixed_figure4_oof_folds,
-    numeric_matrix,
     read_analysis_dataset,
 )
 from .plotting import LABELS, clean_axis, configure_style, save_vector_pair
 from .provenance import software_versions
-from .run_biological_age_prediction import fit_oof_elasticnet
+from .production_oof import (
+    PRODUCTION_CONFIG_ID, load_primary_oof_predictions, production_oof_folds,
+)
 
 # --- Repository-local generated input, outputs, and cache ---
 
@@ -53,7 +44,6 @@ DATASET_PATH = (
     / "inchianti_analysis_ready.parquet"
 )
 OUTPUT_DIR = Path(__file__).resolve().parent / "outputs" / "cox"
-PYAGING_CACHE_DIR = Path(__file__).resolve().parent / "pyaging_data"
 
 
 # --- Fixed formal parameters ---
@@ -87,7 +77,9 @@ REQUIRED_COLUMNS = {
 
 def read_dataset(path: Path) -> pd.DataFrame:
     """Read one analysis-ready CSV/CSV.GZ or Parquet cohort."""
-    return read_analysis_dataset(path)
+    return read_analysis_dataset(
+        path, columns=sorted(REQUIRED_COLUMNS), float_precision="round_trip"
+    )
 
 
 def complete_case_mask(values: pd.Series) -> pd.Series:
@@ -109,10 +101,11 @@ def prepare_cohort(frame: pd.DataFrame) -> pd.DataFrame:
     cohort = cohort[cohort["survival_time_years"].gt(0) & cohort["event"].isin([0, 1])]
     suffix = pd.to_numeric(cohort["sampleID"].str.extract(r"(\d+)$", expand=False), errors="coerce")
     cohort["_suffix"] = suffix.fillna(np.inf)
+    cohort["_numeric_id"] = pd.to_numeric(cohort["ID"], errors="raise")
     cohort = (
-        cohort.sort_values(["ID", "_suffix", "sampleID"], kind="mergesort")
+        cohort.sort_values(["_numeric_id", "_suffix", "sampleID"], kind="mergesort")
         .drop_duplicates("ID", keep="first")
-        .drop(columns="_suffix")
+        .drop(columns=["_numeric_id", "_suffix"])
         .reset_index(drop=True)
     )
     if len(cohort) < N_FOLDS or cohort["event"].sum() < 1:
@@ -120,128 +113,20 @@ def prepare_cohort(frame: pd.DataFrame) -> pd.DataFrame:
     return cohort
 
 
-def cpg_columns(frame: pd.DataFrame) -> list[str]:
-    """Return all 485,577 formal baseline features in file order."""
-    return dnam_feature_columns(frame)
-
-
-# --- Formal participant-level age-stratified outer folds ---
-
-
-def assign_cox_folds(cohort: pd.DataFrame, seed: int = SEED) -> np.ndarray:
-    """Use participant age quintiles with shuffled StratifiedKFold."""
-    strata = pd.qcut(cohort["age_years"], q=N_FOLDS, labels=False, duplicates="drop")
-    counts = strata.value_counts()
-    if len(counts) < 2 or int(counts.min()) < N_FOLDS:
-        raise ValueError(
-            f"Each Cox age stratum must contain at least {N_FOLDS} IDs: {counts.to_dict()}"
-        )
-    folds = np.full(len(cohort), -1, dtype=int)
-    splitter = StratifiedKFold(n_splits=N_FOLDS, shuffle=True, random_state=seed)
-    positions = np.arange(len(cohort))
-    for fold, (_, test) in enumerate(splitter.split(positions, strata.to_numpy(int))):
-        folds[test] = fold
-    if (folds < 0).any():
-        raise RuntimeError("Cox fold assignment failed.")
-    return folds
-
-
-# --- PyAging components ---
-
-
-def component_predictions(cohort: pd.DataFrame, cpgs: list[str]) -> pd.DataFrame:
-    """Reuse complete component columns or infer the formal 19 OOF clocks."""
-    if set(OOF_COMPONENTS).issubset(cohort.columns):
-        return cohort[["sampleID", *OOF_COMPONENTS]].copy()
-    try:
-        import anndata as ad
-        import pyaging as pya
-    except ImportError as exc:
-        raise RuntimeError("Install anndata and pyaging to compute BioMeta inputs.") from exc
-    matrix = numeric_matrix(cohort, cpgs)
-    adata = ad.AnnData(matrix)
-    adata.var_names = cpgs
-    adata.obs = cohort[["sampleID", "age_years"]].copy().set_index("sampleID", drop=False)
-    adata.obs["age"] = adata.obs["age_years"]
-    adata.obs["Age"] = adata.obs["age_years"]
-    female = 1.0 - cohort["sex_male"].to_numpy(float)
-    adata.obs["female"] = female
-    adata.obs["Female"] = female
-    PYAGING_CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    pya.pred.predict_age(
-        adata,
-        list(OOF_COMPONENTS),
-        dir=relative_path(PYAGING_CACHE_DIR),
-        batch_size=512,
-        clean=True,
-        verbose=False,
-    )
-    output = adata.obs[["sampleID", *OOF_COMPONENTS]].reset_index(drop=True)
-    del adata, matrix
-    gc.collect()
-    return output
-
-
-# --- Cox-specific OOF ENCV training ---
-
-
-def fit_cox_prediction_model(x: np.ndarray, y: np.ndarray, seed: int) -> Pipeline:
-    """Reuse the exact Figure 4 panel-1 OOF ElasticNetCV configuration."""
-    return fit_oof_elasticnet(x, y, seed=seed)
-
-
-def train_oof_predictions(
-    cohort: pd.DataFrame,
-    designs: dict[str, np.ndarray],
-    *,
-    folds: np.ndarray | None = None,
+def load_survival_predictions(
+    cohort: pd.DataFrame, *, output_dir: Path | None = None
 ) -> pd.DataFrame:
-    """Train each biological target model in five outer folds and add observed PhenoAge."""
-    folds = fixed_figure4_oof_folds(cohort) if folds is None else np.asarray(folds, dtype=int)
-    if len(folds) != len(cohort) or set(folds) != set(range(N_FOLDS)):
-        raise ValueError("Cox OOF folds must cover every cohort row with labels 0 through 4.")
-    if cohort.assign(fold=folds).groupby("ID")["fold"].nunique().max() != 1:
-        raise ValueError("Cox OOF fold assignment splits samples from the same donor.")
-    y = cohort[TARGET].to_numpy(float)
-    outputs: list[pd.DataFrame] = []
-    for fold in range(N_FOLDS):
-        train, test = folds != fold, folds == fold
-        for model_name in TRAINED_MODELS:
-            model = fit_cox_prediction_model(designs[model_name][train], y[train], SEED + fold)
-            output = cohort.loc[
-                test,
-                ["ID", "sampleID", "age_years", "survival_time_years", "event", "sex_male"],
-            ].copy()
-            output["fold"] = fold + 1
-            output["model"] = model_name
-            output["prediction"] = model.predict(designs[model_name][test])
-            outputs.append(output)
-        clinical = cohort.loc[
-            test,
-            ["ID", "sampleID", "age_years", "survival_time_years", "event", "sex_male"],
-        ].copy()
-        clinical["fold"] = fold + 1
-        clinical["model"] = "clinical_phenoage"
-        clinical["prediction"] = y[test]
-        outputs.append(clinical)
-    predictions = pd.concat(outputs, ignore_index=True)
-    for model in MODEL_ORDER:
-        subset = predictions[predictions["model"].eq(model)]
-        if len(subset) != len(cohort) or subset["ID"].nunique() != len(cohort):
-            raise RuntimeError(f"{model} does not have one OOF/observed score per participant.")
-    return predictions
+    """Load the shared OOF scores and add the observed Clinical PhenoAge comparator."""
+    predictions = load_primary_oof_predictions(cohort, output_dir=output_dir)
+    predictions = predictions.rename(columns={"pred_bioage": "prediction"})
+    clinical = cohort.copy()
+    clinical["fold"] = production_oof_folds(cohort)
+    clinical["model"] = "clinical_phenoage"
+    clinical["prediction"] = clinical[TARGET]
+    return pd.concat([predictions, clinical], ignore_index=True)
 
 
 # --- Standardized pooled Cox models ---
-
-
-def zscore(values: pd.Series) -> pd.Series:
-    """Standardize a Cox covariate with the Figure 4 population SD convention."""
-    numeric = pd.to_numeric(values, errors="raise")
-    scale = numeric.std(ddof=0)
-    if not np.isfinite(scale) or scale == 0:
-        raise ValueError("Cox covariate has zero or invalid sample SD.")
-    return (numeric - numeric.mean()) / scale
 
 
 def fit_cox_models(predictions: pd.DataFrame) -> pd.DataFrame:
@@ -257,9 +142,10 @@ def fit_cox_models(predictions: pd.DataFrame) -> pd.DataFrame:
             raise ValueError(
                 f"{model} must contain {INCHIANTI_PARTICIPANTS} unique participants."
             )
-        data["prediction_z"] = zscore(data["prediction"])
-        data["age_z"] = zscore(data["age_years"])
-        data["sex_z"] = zscore(data["sex_male"])
+        raw = data[["prediction", "age_years", "sex_male"]]
+        if (raw.std(ddof=0) == 0).any():
+            raise ValueError("Cox covariate has zero variance.")
+        data[["prediction_z", "age_z", "sex_z"]] = StandardScaler().fit_transform(raw)
         for panel, covariates in COX_PANELS.items():
             fit_data = data[["survival_time_years", "event", *covariates]].dropna()
             fitter = CoxPHFitter(
@@ -356,59 +242,42 @@ def plot_cox(coefficients: pd.DataFrame) -> None:
 
 
 def main() -> int:
-    """Prepare cohort, train OOF models, fit Cox specifications, and plot."""
+    """Load shared primary OOF scores, fit Cox specifications, and plot."""
     cohort = prepare_cohort(read_dataset(DATASET_PATH))
     if len(cohort) != INCHIANTI_PARTICIPANTS or int(cohort["event"].sum()) != INCHIANTI_COX_EVENTS:
         raise ValueError(
             f"Figure 4 Cox requires {INCHIANTI_PARTICIPANTS} participants and "
             f"{INCHIANTI_COX_EVENTS} deaths."
         )
-    cpgs = cpg_columns(cohort)
-    components = component_predictions(cohort, cpgs).set_index("sampleID")
-    designs = {
-        "bio_metaclock": numeric_matrix(
-            components.loc[cohort["sampleID"]], OOF_COMPONENTS, dtype=np.float64
-        ),
-        "baseline": numeric_matrix(cohort, cpgs),
-    }
-    folds = fixed_figure4_oof_folds(cohort)
-    predictions = train_oof_predictions(cohort, designs, folds=folds)
+    predictions = load_survival_predictions(cohort)
     coefficients = fit_cox_models(predictions)
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     predictions.to_csv(OUTPUT_DIR / "cox_oof_predictions.csv", index=False)
     coefficients.to_csv(OUTPUT_DIR / "cox_coefficients_standardized.csv", index=False)
-    (OUTPUT_DIR / "run_summary.json").write_text(
-        json.dumps(
-            {
-                "outer_folds": "fixed formal Figure 4 donor-level OOF assignment",
-                "oof_fold_assignment": {
-                    "path": relative_path(INCHIANTI_OOF_FOLD_ASSIGNMENT_PATH),
-                    "assignment_labels_internal": list(range(N_FOLDS)),
-                    "output_fold_labels": list(range(1, N_FOLDS + 1)),
-                },
-                "prediction_model": (
-                    "exact Figure 4 panel-1 StandardScaler + ElasticNetCV; "
-                    "cv=5; max_iter=1000; tol=1e-4; selection=random; "
-                    "random_state=seed+fold; n_jobs=1; no second refit"
-                ),
-                "cox_scope": "pooled OOF predictions; observed clinical PhenoAge comparator",
-                "cox_fit": (
-                    "exact Figure 4 standardized specification: every covariate z-scored with "
-                    "population SD (ddof=0); CoxPHFitter alpha=0.05, Breslow baseline, "
-                    "penalizer=0.0; robust=False; show_progress=False"
-                ),
-                "models": list(MODEL_ORDER),
-                "bio_metaclock_components": list(OOF_COMPONENTS),
-                "panels": COX_PANELS,
-                "software": software_versions(
-                    ["numpy", "pandas", "scikit-learn", "lifelines", "pyaging", "anndata"]
-                ),
-            },
-            indent=2,
-        )
-        + "\n",
-        encoding="utf-8",
-    )
+    coefficients.to_csv(OUTPUT_DIR / "04_cox_coefficients_standardized_source_data.csv", index=False)
+    source_metadata = json.dumps(
+        {
+            "prediction_config_id": PRODUCTION_CONFIG_ID,
+            "prediction_source": "shared biological_age_prediction/oof_predictions.csv",
+            "outer_folds": "primary participants; age-decade by sex; StratifiedKFold(5, shuffle=True, random_state=0)",
+            "prediction_model": "19-component MetaClock and full-CpG baseline; shared fold-local OOF predictions",
+            "cox_scope": "pooled OOF predictions; observed clinical PhenoAge comparator",
+            "cox_fit": (
+                "exact Figure 4 standardized specification: every covariate z-scored with "
+                "population SD (ddof=0); CoxPHFitter alpha=0.05, Breslow baseline, "
+                "penalizer=0.0; robust=False; show_progress=False"
+            ),
+            "models": list(MODEL_ORDER),
+            "bio_metaclock_components": list(OOF_COMPONENTS),
+            "panels": COX_PANELS,
+            "software": software_versions(
+                ["numpy", "pandas", "scikit-learn", "lifelines", "pyaging", "anndata"]
+            ),
+        },
+        indent=2,
+    ) + "\n"
+    for filename in ("run_summary.json", "figure_source.json"):
+        (OUTPUT_DIR / filename).write_text(source_metadata, encoding="utf-8")
     plot_cox(coefficients)
     return 0
 

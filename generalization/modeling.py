@@ -15,8 +15,11 @@ from typing import Any, Sequence
 
 import numpy as np
 import pandas as pd
+from joblib import effective_n_jobs
 from sklearn.exceptions import ConvergenceWarning
-from sklearn.linear_model import ElasticNetCV
+from sklearn.impute import SimpleImputer
+from sklearn.linear_model import ElasticNet
+from sklearn.model_selection import GridSearchCV
 from sklearn.metrics import mean_absolute_error
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
@@ -26,7 +29,7 @@ from repository_paths import ensure_repo_path, relative_path
 
 TARGET = "age"
 MODEL_NAMES = ("EN", "Meta EN", "SVM", "Meta SVM", "Mean")
-CONFIG_ID = "generalization-v4-geo-reproduction-split105-30x50-scaled-encv5-linear-svr"
+CONFIG_ID = "generalization-v5-split105-30x50-fold-local-median-encv5-linear-svr"
 RESULT_COLUMNS = (
     "model",
     "training_size",
@@ -44,7 +47,7 @@ RESULT_COLUMNS = (
 
 @dataclass(frozen=True)
 class ElasticNetConfig:
-    """ElasticNetCV search space and solver settings."""
+    """Elastic-net search space and solver settings."""
 
     cv_folds: int = 5
     alphas: tuple[float, ...] = field(
@@ -151,9 +154,10 @@ def load_aligned_inputs(spec: DatasetSpec) -> tuple[pd.DataFrame, pd.DataFrame]:
 
 
 def split_and_impute(
-    direct: pd.DataFrame, meta: pd.DataFrame, config: GeneralizationConfig
+    direct: pd.DataFrame, meta: pd.DataFrame, config: GeneralizationConfig,
+    *, impute: bool = True,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    """Apply the fixed split and the original zero-imputation policy."""
+    """Apply the fixed split, optionally filling missing values for fixed SVR."""
     order = direct.sample(frac=1.0, random_state=config.split_seed).index
     boundary = int(len(order) * config.train_fraction)
 
@@ -167,8 +171,8 @@ def split_and_impute(
         if not features:
             raise ValueError("No usable features remain")
         return (
-            pd.concat([train[features].fillna(0.0), train[[TARGET]]], axis=1),
-            pd.concat([test[features].fillna(0.0), test[[TARGET]]], axis=1),
+            pd.concat([(train[features].fillna(0.0) if impute else train[features]), train[[TARGET]]], axis=1),
+            pd.concat([(test[features].fillna(0.0) if impute else test[features]), test[[TARGET]]], axis=1),
         )
 
     direct_train, direct_test = prepare(direct, allow_drop=True)
@@ -176,24 +180,28 @@ def split_and_impute(
     return direct_train, direct_test, meta_train, meta_test
 
 
-def _elastic_net(config: GeneralizationConfig) -> Pipeline:
+def _elastic_net(config: GeneralizationConfig) -> GridSearchCV:
     settings = config.elastic_net
-    return Pipeline(
+    pipeline = Pipeline(
         [
+            ("imputer", SimpleImputer(strategy="median", keep_empty_features=True)),
             ("scaler", StandardScaler()),
-            (
-                "model",
-                ElasticNetCV(
-                    alphas=np.asarray(settings.alphas),
-                    cv=settings.cv_folds,
-                    l1_ratio=settings.l1_ratio,
-                    max_iter=settings.max_iter,
-                    n_jobs=settings.n_jobs,
-                    selection="cyclic",
-                    tol=settings.tolerance,
-                ),
-            ),
+            ("model", ElasticNet(
+                l1_ratio=settings.l1_ratio,
+                max_iter=settings.max_iter,
+                selection="cyclic",
+                tol=settings.tolerance,
+            )),
         ]
+    )
+    return GridSearchCV(
+        pipeline,
+        {"model__alpha": np.asarray(settings.alphas)},
+        cv=settings.cv_folds,
+        scoring="neg_mean_squared_error",
+        n_jobs=settings.n_jobs,
+        refit=True,
+        error_score="raise",
     )
 
 
@@ -220,6 +228,8 @@ def _fit_model(
     label: str, train: pd.DataFrame, test: pd.DataFrame, config: GeneralizationConfig
 ) -> dict[str, object]:
     estimator = _elastic_net(config) if label in {"EN", "Meta EN"} else _linear_svr(config)
+    if label not in {"EN", "Meta EN"}:
+        train, test = train.fillna(0.0), test.fillna(0.0)
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always", ConvergenceWarning)
         estimator.fit(train.drop(columns=TARGET), train[TARGET])
@@ -236,10 +246,13 @@ def _fit_model(
             issubclass(item.category, ConvergenceWarning) for item in caught
         ),
     }
-    fitted = estimator.named_steps["model"]
+    pipeline = estimator.best_estimator_ if isinstance(estimator, GridSearchCV) else estimator
+    fitted = pipeline.named_steps["model"]
+    if label in {"EN", "Meta EN"} and effective_n_jobs(config.elastic_net.n_jobs) != 1:
+        record["convergence_warnings"] = None
     if label in {"EN", "Meta EN"}:
         record.update(
-            selected_alpha=float(fitted.alpha_),
+            selected_alpha=float(fitted.alpha),
             n_iter=int(fitted.n_iter_),
             nonzero_coefficients=int(np.count_nonzero(fitted.coef_)),
         )
@@ -309,7 +322,7 @@ def evaluate_training_size(
     """Fit and test all five models for one configured training-size point."""
     config = config or GeneralizationConfig()
     direct, meta = load_aligned_inputs(spec)
-    direct_train, direct_test, meta_train, meta_test = split_and_impute(direct, meta, config)
+    direct_train, direct_test, meta_train, meta_test = split_and_impute(direct, meta, config, impute=False)
     sizes = log_spaced_training_sizes(len(direct_train), config)
     if not 0 <= size_index < config.n_training_sizes:
         raise IndexError(f"size_index must be 0..{config.n_training_sizes - 1}")
@@ -322,7 +335,8 @@ def evaluate_training_size(
         provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
         validate_result(existing, size, size_index, config)
         cache_matches = (
-            provenance.get("config") == config_record(config)
+            provenance.get("config_id") == CONFIG_ID
+            and provenance.get("config") == config_record(config)
             and provenance.get("direct_input") == relative_path(direct_path)
             and provenance.get("meta_input") == relative_path(meta_path)
         )

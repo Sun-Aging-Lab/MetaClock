@@ -1,32 +1,22 @@
 #!/usr/bin/env python3
-"""Train five-fold OOF age models and draw age/sex-corrected KM curves.
+"""Draw age/sex-corrected KM curves from the shared primary OOF predictions.
 
-Run ``prepare_inchianti_dataset`` first; ``DATASET_PATH`` points to its output.
-The combined InCHIANTI table must include the biological-age columns/CpGs
-and ``INTV_MOR``: wave 0 is alive/censored and waves 4, 5, and 6 are deaths. One deterministic baseline DNAm sample is used
-per participant and mapped to the saved Baseline KM OOF assignment shared by
-the 19-component MetaClock and Baseline predictors.
+Run the biological-age prediction workflow first. Deaths use follow-up waves
+4, 5 and 6; surviving participants are censored at wave 6.
 """
 
 from __future__ import annotations
 
-import gc
 import json
 from pathlib import Path
 
-import joblib
 import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from sklearn.linear_model import ElasticNetCV, LinearRegression
-from sklearn.model_selection import KFold
-from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import StandardScaler
-
-from repository_paths import relative_path
+from sklearn.linear_model import LinearRegression
 
 from .config import (
     INCHIANTI_PARTICIPANTS,
@@ -36,13 +26,12 @@ from .data import (
     complete_case_mask as parse_complete_case_mask,
 )
 from .data import (
-    dnam_feature_columns,
-    fixed_figure4_oof_folds,
-    numeric_matrix,
     read_analysis_dataset,
 )
 from .plotting import LABELS, clean_axis, configure_style, save_vector_pair
 from .provenance import software_versions
+from .production_oof import PRODUCTION_CONFIG_ID, production_oof_folds
+from .run_cox_analysis import load_survival_predictions
 
 # --- Repository-local generated input, outputs, and cache ---
 
@@ -53,8 +42,6 @@ DATASET_PATH = (
     / "inchianti_analysis_ready.parquet"
 )
 OUTPUT_DIR = Path(__file__).resolve().parent / "outputs" / "kaplan_meier"
-PYAGING_CACHE_DIR = Path(__file__).resolve().parent / "pyaging_data"
-KM_FOLD_ASSIGNMENT_PATH = Path(__file__).with_name("inchianti_km_oof_fold_assignment.csv")
 
 
 # --- Fixed formal parameters ---
@@ -68,14 +55,13 @@ TRAIN_WAVE = 0.0
 DEATH_WAVES = (4.0, 5.0, 6.0)
 ALIVE_CENSOR_TIME = 6.0
 TAIL_FRACTION = 0.20
-ALPHAS = np.logspace(0, -5, 30)
 TRAINED_MODELS = ("bio_metaclock", "baseline")
 MODEL_ORDER = (*TRAINED_MODELS, "clinical_phenoage")
 GROUP_ORDER = ("bottom_20", "top_20")
 GROUP_COLORS = {"bottom_20": "#C96B6B", "top_20": "#5B7FAE"}
 GROUP_LABELS = {
-    "bottom_20": "20% lowest age-residualized score",
-    "top_20": "20% highest age-residualized score",
+    "bottom_20": "Lowest 20% (age/sex adjusted)",
+    "top_20": "Highest 20% (age/sex adjusted)",
 }
 REQUIRED_COLUMNS = {
     "ID", "sampleID", "age_years", TARGET, COMPLETE_CASE, "INTV_MOR", "sex_male"
@@ -87,7 +73,9 @@ REQUIRED_COLUMNS = {
 
 def read_dataset(path: Path) -> pd.DataFrame:
     """Read one analysis-ready CSV/CSV.GZ or Parquet cohort."""
-    return read_analysis_dataset(path)
+    return read_analysis_dataset(
+        path, columns=sorted(REQUIRED_COLUMNS), float_precision="round_trip"
+    )
 
 
 def complete_case_mask(values: pd.Series) -> pd.Series:
@@ -129,21 +117,6 @@ def prepare_cohort(frame: pd.DataFrame) -> pd.DataFrame:
     return cohort
 
 
-def cpg_columns(frame: pd.DataFrame) -> list[str]:
-    """Return all 485,577 formal baseline features in file order."""
-    return dnam_feature_columns(frame)
-
-
-# --- Saved Baseline KM outer folds ---
-
-
-def assign_km_folds(cohort: pd.DataFrame) -> tuple[np.ndarray, pd.DataFrame]:
-    """Map donors to the saved Baseline folds used by both KM predictors."""
-    folds = fixed_figure4_oof_folds(cohort, path=KM_FOLD_ASSIGNMENT_PATH)
-    summary = summarize_km_folds(cohort, folds)
-    return folds, summary
-
-
 def summarize_km_folds(cohort: pd.DataFrame, folds: np.ndarray) -> pd.DataFrame:
     """Validate and summarize an explicit participant-level KM fold assignment."""
     folds = np.asarray(folds, dtype=int)
@@ -163,109 +136,6 @@ def summarize_km_folds(cohort: pd.DataFrame, folds: np.ndarray) -> pd.DataFrame:
         if subset.empty or subset["km_event"].nunique() != 2:
             raise ValueError(f"KM fold {fold + 1} must contain deaths and censored controls.")
     return summary
-
-
-# --- PyAging components ---
-
-
-def component_predictions(cohort: pd.DataFrame, cpgs: list[str]) -> pd.DataFrame:
-    """Reuse component columns or infer all 19 formal OOF BioMeta inputs."""
-    if set(OOF_COMPONENTS).issubset(cohort.columns):
-        return cohort[["sampleID", *OOF_COMPONENTS]].copy()
-    try:
-        import anndata as ad
-        import pyaging as pya
-    except ImportError as exc:
-        raise RuntimeError("Install anndata and pyaging to compute BioMeta inputs.") from exc
-    matrix = numeric_matrix(cohort, cpgs)
-    adata = ad.AnnData(matrix)
-    adata.var_names = cpgs
-    adata.obs = cohort[["sampleID", "age_years"]].copy().set_index("sampleID", drop=False)
-    adata.obs["age"] = adata.obs["age_years"]
-    adata.obs["Age"] = adata.obs["age_years"]
-    female = 1.0 - cohort["sex_male"].to_numpy(float)
-    adata.obs["female"] = female
-    adata.obs["Female"] = female
-    PYAGING_CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    pya.pred.predict_age(
-        adata,
-        list(OOF_COMPONENTS),
-        dir=relative_path(PYAGING_CACHE_DIR),
-        batch_size=512,
-        clean=True,
-        verbose=False,
-    )
-    output = adata.obs[["sampleID", *OOF_COMPONENTS]].reset_index(drop=True)
-    del adata, matrix
-    gc.collect()
-    return output
-
-
-# --- KM-specific model fit: scaler + ENCV with max_iter=10000 ---
-
-
-def fit_km_prediction_model(x: np.ndarray, y: np.ndarray, seed: int) -> Pipeline:
-    """Fit the formal KM predictor without a selected-alpha second refit."""
-    model = Pipeline(
-        [
-            ("scaler", StandardScaler()),
-            (
-                "elasticnetcv",
-                ElasticNetCV(
-                    l1_ratio=0.5,
-                    alphas=ALPHAS,
-                    cv=KFold(n_splits=N_FOLDS, shuffle=True, random_state=seed),
-                    max_iter=10_000,
-                    n_jobs=1,
-                ),
-            ),
-        ]
-    )
-    model.fit(x, y)
-    return model
-
-
-def train_oof_predictions(
-    cohort: pd.DataFrame,
-    designs: dict[str, np.ndarray],
-    *,
-    folds: np.ndarray | None = None,
-) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Train both biological-age predictors in all outer folds and add Clinical PhenoAge."""
-    if folds is None:
-        folds, diagnostics = assign_km_folds(cohort)
-    else:
-        folds = np.asarray(folds, dtype=int)
-        diagnostics = summarize_km_folds(cohort, folds)
-    y = cohort[TARGET].to_numpy(float)
-    outputs: list[pd.DataFrame] = []
-    model_dir = OUTPUT_DIR / "fold_models"
-    model_dir.mkdir(parents=True, exist_ok=True)
-    for fold in range(N_FOLDS):
-        train, test = folds != fold, folds == fold
-        for model_name in TRAINED_MODELS:
-            model = fit_km_prediction_model(designs[model_name][train], y[train], SEED + fold)
-            joblib.dump(model, model_dir / f"{model_name}_fold{fold + 1}.joblib")
-            output = cohort.loc[
-                test, ["ID", "sampleID", "age_years", "sex_male", TARGET, "INTV_MOR", "km_time", "km_event"]
-            ].copy()
-            output["fold"] = fold + 1
-            output["model"] = model_name
-            output["prediction"] = model.predict(designs[model_name][test])
-            outputs.append(output)
-        clinical = cohort.loc[
-            test, ["ID", "sampleID", "age_years", "sex_male", TARGET, "INTV_MOR", "km_time", "km_event"]
-        ].copy()
-        clinical["fold"] = fold + 1
-        clinical["model"] = "clinical_phenoage"
-        clinical["prediction"] = y[test]
-        outputs.append(clinical)
-    predictions = pd.concat(outputs, ignore_index=True)
-    for model in MODEL_ORDER:
-        subset = predictions[predictions["model"].eq(model)]
-        if len(subset) != len(cohort) or subset["ID"].nunique() != len(cohort):
-            raise RuntimeError(f"{model} does not have one OOF/observed score per participant.")
-    return predictions, diagnostics
 
 
 # --- Pooled age/sex correction, top/bottom 20%, KM, and log-rank ---
@@ -460,22 +330,14 @@ def plot_km(curves: pd.DataFrame, tests: pd.DataFrame) -> None:
 
 
 def main() -> int:
-    """Prepare FU4-6 endpoint, train OOF predictors, remove age/sex effects, and plot."""
+    """Load shared primary OOF scores, remove age/sex effects, and plot."""
     cohort = prepare_cohort(read_dataset(DATASET_PATH))
     if len(cohort) != INCHIANTI_PARTICIPANTS:
         raise ValueError(
             f"Figure 4 Kaplan-Meier requires {INCHIANTI_PARTICIPANTS} participants."
         )
-    cpgs = cpg_columns(cohort)
-    components = component_predictions(cohort, cpgs).set_index("sampleID")
-    designs = {
-        "bio_metaclock": numeric_matrix(
-            components.loc[cohort["sampleID"]], OOF_COMPONENTS, dtype=np.float64
-        ),
-        "baseline": numeric_matrix(cohort, cpgs),
-    }
-    folds, _ = assign_km_folds(cohort)
-    predictions, diagnostics = train_oof_predictions(cohort, designs, folds=folds)
+    predictions = load_survival_predictions(cohort)
+    diagnostics = summarize_km_folds(cohort, production_oof_folds(cohort))
     corrected, age_fits = age_sex_correct_predictions(predictions)
     assignments = tail_groups(corrected)
     curves, tests = fit_km_curves(assignments)
@@ -486,36 +348,26 @@ def main() -> int:
     assignments.to_csv(OUTPUT_DIR / "km_top_bottom20_assignments.csv", index=False)
     curves.to_csv(OUTPUT_DIR / "km_curve_points.csv", index=False)
     tests.to_csv(OUTPUT_DIR / "km_logrank_tests.csv", index=False)
-    (OUTPUT_DIR / "run_summary.json").write_text(
-        json.dumps(
-            {
-                "endpoint": "INTV_MOR: 0 alive/censored; death waves 4, 5, 6",
-                "outer_folds": "saved Baseline KM donor folds shared by both trained models",
-                "oof_fold_assignment": {
-                    "path": relative_path(KM_FOLD_ASSIGNMENT_PATH),
-                    "assignment_labels_internal": list(range(N_FOLDS)),
-                    "output_fold_labels": list(range(1, N_FOLDS + 1)),
-                },
-                "prediction_model": (
-                    "StandardScaler + ElasticNetCV; l1_ratio=0.5; 30 alphas from 1 to 1e-5; "
-                    "shuffled five-fold inner CV seeded by outer fold; max_iter=10000; "
-                    "tol=1e-4; selection=cyclic; no second refit"
-                ),
-                "training_order": "numeric participant ID ascending",
-                "feature_matrix_dtype": {name: str(matrix.dtype) for name, matrix in designs.items()},
-                "age_sex_correction": "pooled prediction ~ 1 + age_years + female within model",
-                "tails": "deterministic bottom/top 20% within model",
-                "models": list(MODEL_ORDER),
-                "bio_metaclock_components": list(OOF_COMPONENTS),
-                "software": software_versions(
-                    ["numpy", "pandas", "scikit-learn", "lifelines", "pyaging", "anndata"]
-                ),
-            },
-            indent=2,
-        )
-        + "\n",
-        encoding="utf-8",
-    )
+    source_metadata = json.dumps(
+        {
+            "endpoint": "INTV_MOR: 0 alive/censored; death waves 4, 5, 6",
+            "prediction_config_id": PRODUCTION_CONFIG_ID,
+            "prediction_source": "shared biological_age_prediction/oof_predictions.csv",
+            "outer_folds": "primary participants; age-decade by sex; StratifiedKFold(5, shuffle=True, random_state=0)",
+            "prediction_model": "19-component MetaClock and full-CpG baseline; shared fold-local OOF predictions",
+            "training_order": "numeric participant ID, numeric sample suffix",
+            "age_sex_correction": "pooled prediction ~ 1 + age_years + female within model",
+            "tails": "deterministic bottom/top 20% within model",
+            "models": list(MODEL_ORDER),
+            "bio_metaclock_components": list(OOF_COMPONENTS),
+            "software": software_versions(
+                ["numpy", "pandas", "scikit-learn", "lifelines", "pyaging", "anndata"]
+            ),
+        },
+        indent=2,
+    ) + "\n"
+    for filename in ("run_summary.json", "figure_source.json"):
+        (OUTPUT_DIR / filename).write_text(source_metadata, encoding="utf-8")
     plot_km(curves, tests)
     return 0
 

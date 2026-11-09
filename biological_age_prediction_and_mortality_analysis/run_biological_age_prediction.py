@@ -24,9 +24,11 @@ import numpy as np
 import pandas as pd
 from scipy.stats import pearsonr
 from sklearn.exceptions import ConvergenceWarning
-from sklearn.linear_model import ElasticNet, ElasticNetCV
+from sklearn.impute import SimpleImputer
+from threadpoolctl import threadpool_limits
+from sklearn.linear_model import ElasticNet
 from sklearn.metrics import mean_absolute_error
-from sklearn.model_selection import KFold
+from sklearn.model_selection import GridSearchCV, KFold
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
@@ -35,8 +37,9 @@ from repository_paths import relative_path
 from .config import (
     EXTERNAL_COMPONENTS,
     INCHIANTI_COMPLETE_CASE_SAMPLES,
-    INCHIANTI_OOF_FOLD_ASSIGNMENT_PATH,
     INCHIANTI_PARTICIPANTS,
+    PRODUCTION_CONFIG_ID,
+    PRODUCTION_OOF_FOLD_ASSIGNMENT_PATH,
     OOF_COMPONENTS,
 )
 from .data import (
@@ -44,15 +47,15 @@ from .data import (
 )
 from .data import (
     dnam_feature_columns,
-    fixed_figure4_oof_folds,
+    sort_figure4_samples,
     numeric_matrix,
     read_analysis_dataset,
 )
-from .data import (
-    select_one_sample_per_participant as select_primary_samples,
-)
 from .plotting import COLORS, LABELS, clean_axis, configure_style, save_vector_pair
 from .provenance import software_versions
+from .production_oof import (
+    primary_samples, production_oof_folds, save_oof_predictions, save_duplicate_predictions,
+)
 
 # --- Repository-local generated input, outputs, and cache ---
 
@@ -73,9 +76,8 @@ COMPLETE_CASE = "clinical_phenoage_complete_case"
 N_FOLDS = 5
 SEED = 0
 ALPHAS = np.logspace(0, -5, 30)
-OOF_MAX_ITER = 1_000
-FULL_REFIT_CV_MAX_ITER = 10_000
-REFIT_MAX_ITER = 100_000
+PRODUCTION_MAX_ITER = 20_000
+SEARCH_WORKERS = 4
 MODEL_ORDER = ("bio_metaclock", "baseline")
 REQUIRED_COLUMNS = {"ID", "sampleID", "age_years", "sex_male", TARGET, COMPLETE_CASE}
 
@@ -85,7 +87,7 @@ REQUIRED_COLUMNS = {"ID", "sampleID", "age_years", "sex_male", TARGET, COMPLETE_
 
 def read_dataset(path: Path) -> pd.DataFrame:
     """Read a row-oriented CSV/CSV.GZ or Parquet analysis table."""
-    return read_analysis_dataset(path)
+    return read_analysis_dataset(path, float_precision="round_trip")
 
 
 def complete_case_mask(values: pd.Series) -> pd.Series:
@@ -107,47 +109,12 @@ def select_valid_samples(frame: pd.DataFrame) -> pd.DataFrame:
         raise ValueError("sampleID must identify one DNAm row.")
     if valid["ID"].nunique() < N_FOLDS:
         raise ValueError(f"Need at least {N_FOLDS} valid participants.")
-    return valid.sort_values("sampleID", kind="mergesort").reset_index(drop=True)
+    return sort_figure4_samples(valid)
 
 
 def cpg_columns(frame: pd.DataFrame) -> list[str]:
     """Return all 485,577 formal baseline features in file order."""
     return dnam_feature_columns(frame)
-
-
-# --- Participant-aware five-fold assignment ---
-
-
-def assign_grouped_age_folds(
-    frame: pd.DataFrame,
-    n_folds: int = N_FOLDS,
-    seed: int = SEED,
-) -> np.ndarray:
-    """Age-bin participants, then map every sample from an ID to one outer fold."""
-    participants = (
-        frame[["ID", "age_years"]]
-        .assign(ID=frame["ID"].astype(str))
-        .groupby("ID", as_index=False)
-        .agg(age_years=("age_years", "median"))
-    )
-    bins = (participants["age_years"] // 10 * 10).astype("Int64")
-    participant_folds = np.full(len(participants), -1, dtype=int)
-    rng = np.random.default_rng(seed)
-    positions = pd.Series(np.arange(len(participants), dtype=int))
-    for _, indices in positions.groupby(bins, dropna=False):
-        shuffled = indices.to_numpy(dtype=int)
-        rng.shuffle(shuffled)
-        if len(shuffled) < n_folds:
-            participant_folds[shuffled] = rng.choice(
-                n_folds, size=len(shuffled), replace=False
-            )
-        else:
-            participant_folds[shuffled] = np.arange(len(shuffled), dtype=int) % n_folds
-    fold_by_id = dict(zip(participants["ID"], participant_folds, strict=True))
-    folds = frame["ID"].astype(str).map(fold_by_id).to_numpy(dtype=int)
-    if (folds < 0).any() or frame.assign(fold=folds).groupby("ID")["fold"].nunique().max() != 1:
-        raise RuntimeError("Participant-aware fold assignment failed.")
-    return folds
 
 
 # --- PyAging component-clock inference ---
@@ -163,23 +130,26 @@ def run_pyaging_components(frame: pd.DataFrame, cpgs: list[str]) -> pd.DataFrame
     except ImportError as exc:
         raise RuntimeError("Install anndata and pyaging to compute component clocks.") from exc
 
-    matrix = numeric_matrix(frame, cpgs)
-    adata = ad.AnnData(matrix)
-    adata.var_names = cpgs
-    adata.obs = frame[["sampleID", "age_years"]].copy().set_index("sampleID", drop=False)
-    adata.obs["age"] = adata.obs["age_years"]
-    adata.obs["Age"] = adata.obs["age_years"]
+    obs = frame[["sampleID", "age_years"]].copy().set_index("sampleID", drop=False)
+    obs["age"] = obs["age_years"]
+    obs["Age"] = obs["age_years"]
     for source in ("female", "Female"):
         if source in frame.columns:
-            adata.obs["female"] = pd.to_numeric(frame[source], errors="coerce").to_numpy()
-            adata.obs["Female"] = adata.obs["female"]
+            obs["female"] = pd.to_numeric(frame[source], errors="coerce").to_numpy()
+            obs["Female"] = obs["female"]
             break
     else:
         if "sex_male" not in frame.columns:
             raise ValueError("The 19-clock OOF model requires sex_male for GrimAge metadata.")
         female = 1.0 - pd.to_numeric(frame["sex_male"], errors="coerce").to_numpy()
-        adata.obs["female"] = female
-        adata.obs["Female"] = female
+        obs["female"] = female
+        obs["Female"] = female
+    matrix = np.column_stack(
+        (numeric_matrix(frame, cpgs), numeric_matrix(obs, ["age", "female"]))
+    )
+    adata = ad.AnnData(matrix)
+    adata.var_names = [*cpgs, "age", "female"]
+    adata.obs = obs
     PYAGING_CACHE_DIR.mkdir(parents=True, exist_ok=True)
     pya.pred.predict_age(
         adata,
@@ -195,29 +165,58 @@ def run_pyaging_components(frame: pd.DataFrame, cpgs: list[str]) -> pd.DataFrame
     return output
 
 
-# --- StandardScaler + ElasticNetCV training and strict selected-alpha refit ---
+# --- Cross-validated elastic net and selected-alpha refit ---
 
 
-def fit_oof_elasticnet(x: np.ndarray, y: np.ndarray, *, seed: int) -> Pipeline:
-    """Fit the exact formal OOF scaler + ElasticNetCV pipeline."""
-    model = Pipeline(
-        [
-            ("scaler", StandardScaler()),
-            (
-                "elasticnetcv",
-                ElasticNetCV(
-                    alphas=ALPHAS,
-                    cv=N_FOLDS,
-                    max_iter=OOF_MAX_ITER,
-                    tol=1e-4,
-                    selection="random",
-                    random_state=seed,
-                    n_jobs=1,
-                ),
-            ),
-        ]
+def fit_fold_local_elasticnet(
+    x: np.ndarray,
+    y: np.ndarray,
+    *,
+    seed: int = SEED,
+) -> Pipeline:
+    """Fit the fixed five-fold alpha search with all learned preprocessing inside CV."""
+    x = np.asarray(x, dtype=np.float64)
+    y = np.asarray(y, dtype=np.float64)
+    if x.ndim != 2 or len(x) != len(y) or not np.isfinite(y).all():
+        raise ValueError("Invalid feature matrix or nonfinite training target.")
+    if np.isinf(x).any():
+        x = x.copy()
+        x[np.isinf(x)] = np.nan
+    splits = list(KFold(n_splits=N_FOLDS, shuffle=True, random_state=SEED).split(x))
+    steps = [("imputer", SimpleImputer(strategy="constant", fill_value=0.0, keep_empty_features=True))]
+    steps.extend([
+        ("scaler", StandardScaler()),
+        ("elasticnet", ElasticNet(
+            l1_ratio=0.5, fit_intercept=True, max_iter=PRODUCTION_MAX_ITER,
+            tol=1e-4, selection="cyclic", random_state=SEED,
+            warm_start=False, positive=False, precompute=False,
+        )),
+    ])
+    estimator = Pipeline(steps)
+    search = GridSearchCV(
+        estimator, {"elasticnet__alpha": ALPHAS.copy()}, cv=splits,
+        scoring="neg_mean_squared_error", refit=True, n_jobs=SEARCH_WORKERS,
+        pre_dispatch=SEARCH_WORKERS, error_score="raise", return_train_score=False,
     )
-    model.fit(x, y)
+    with threadpool_limits(limits=1), joblib.parallel_backend("threading", n_jobs=SEARCH_WORKERS):
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always", ConvergenceWarning)
+            search.fit(x, y)
+    if not np.isfinite(search.cv_results_["mean_test_score"]).all():
+        raise RuntimeError("Nonfinite inner-CV scores.")
+    model = search.best_estimator_
+    selected = model.named_steps["elasticnet"]
+    model.fit_diagnostics_ = {
+        "selected_alpha": float(selected.alpha),
+        "l1_ratio": float(selected.l1_ratio),
+        "selected_refit_n_iter": int(selected.n_iter_),
+        "selected_refit_dual_gap": float(selected.dual_gap_),
+        "selected_refit_at_iteration_cap": bool(selected.n_iter_ >= PRODUCTION_MAX_ITER),
+        "cv_convergence_warnings": sum(issubclass(item.category, ConvergenceWarning) for item in caught),
+        "best_mean_validation_mse": float(-search.best_score_),
+        "n_features": x.shape[1],
+        "selected_features": x.shape[1],
+    }
     return model
 
 
@@ -225,60 +224,16 @@ def fit_full_refit_elasticnet(
     x: np.ndarray,
     y: np.ndarray,
     *,
-    seed: int,
+    seed: int = SEED,
 ) -> tuple[Pipeline, dict[str, Any]]:
-    """Select alpha with the full-data CV, then refit that alpha to convergence."""
-    selector = Pipeline(
-        [
-            ("scaler", StandardScaler()),
-            (
-                "elasticnetcv",
-                ElasticNetCV(
-                    alphas=ALPHAS,
-                    cv=KFold(n_splits=N_FOLDS, shuffle=True, random_state=seed),
-                    max_iter=FULL_REFIT_CV_MAX_ITER,
-                    n_jobs=1,
-                ),
-            ),
-        ]
-    )
-    with warnings.catch_warnings(record=True) as caught:
-        warnings.simplefilter("always", ConvergenceWarning)
-        selector.fit(x, y)
-    selected = selector.named_steps["elasticnetcv"]
-    model = Pipeline(
-        [
-            ("scaler", StandardScaler()),
-            (
-                "elasticnet",
-                ElasticNet(
-                    alpha=float(selected.alpha_),
-                    l1_ratio=float(selected.l1_ratio_),
-                    max_iter=REFIT_MAX_ITER,
-                ),
-            ),
-        ]
-    )
-    with warnings.catch_warnings(record=True) as refit_warnings:
-        warnings.simplefilter("always", ConvergenceWarning)
-        model.fit(x, y)
-    n_iter = int(model.named_steps["elasticnet"].n_iter_)
-    failed = any(issubclass(item.category, ConvergenceWarning) for item in refit_warnings)
-    if failed or n_iter >= REFIT_MAX_ITER:
-        raise RuntimeError("Selected-alpha ElasticNet refit did not converge.")
-    return model, {
-        "selected_alpha": float(selected.alpha_),
-        "l1_ratio": float(selected.l1_ratio_),
-        "selected_refit_n_iter": n_iter,
-        "cv_convergence_warnings": sum(
-            issubclass(item.category, ConvergenceWarning) for item in caught
-        ),
-    }
+    """Select alpha and refit the selected pipeline once on all supplied training rows."""
+    model = fit_fold_local_elasticnet(x, y, seed=seed)
+    return model, model.fit_diagnostics_
 
 
 def select_one_sample_per_participant(frame: pd.DataFrame) -> pd.DataFrame:
     """Select the lowest numeric sampleID suffix, matching the formal 672-person refit."""
-    return select_primary_samples(frame)
+    return primary_samples(frame)
 
 
 # --- OOF metrics, full-participant artifacts, and barplot ---
@@ -290,76 +245,83 @@ def fit_oof_models(
     *,
     folds: np.ndarray | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    """Train on one row per ID, predict all held-out rows, and summarize by ID."""
-    folds = assign_grouped_age_folds(frame) if folds is None else np.asarray(folds, dtype=int)
-    if len(folds) != len(frame):
-        raise ValueError("OOF fold assignment length does not match the analysis rows.")
-    if set(folds) != set(range(N_FOLDS)):
-        raise ValueError(f"OOF folds must contain every label from 0 to {N_FOLDS - 1}.")
-    if frame.assign(fold=folds).groupby("ID")["fold"].nunique().max() != 1:
-        raise ValueError("OOF fold assignment splits samples from the same donor.")
+    """Fit on primary profiles and score one held-out primary profile per participant."""
+    ordered = sort_figure4_samples(frame)
+    row_by_sample = {sample: row for row, sample in enumerate(frame.sampleID.astype(str))}
+    order = np.asarray([row_by_sample[sample] for sample in ordered.sampleID], dtype=int)
+    designs = {name: np.asarray(matrix)[order] for name, matrix in designs.items()}
+    expected_folds = production_oof_folds(ordered)
+    if folds is not None and not np.array_equal(np.asarray(folds, dtype=int)[order], expected_folds):
+        raise ValueError("OOF assignment differs from the production participant folds.")
+    frame, folds = ordered, expected_folds
+    model_names = tuple(name for name in MODEL_ORDER if name in designs)
+    if not model_names or set(model_names) != set(designs):
+        raise ValueError("Unknown or empty prediction model collection.")
     y = frame[TARGET].to_numpy(float)
-    primary = select_one_sample_per_participant(frame)
-    primary_samples = set(primary["sampleID"])
-    primary_mask = frame["sampleID"].isin(primary_samples).to_numpy()
-    prediction_frames: list[pd.DataFrame] = []
-    fit_rows: list[dict[str, object]] = []
+    primary = primary_samples(frame)
+    primary_mask = frame.sampleID.isin(primary.sampleID).to_numpy()
+    predictions, fit_rows = [], []
     model_dir = OUTPUT_DIR / "fold_models"
     model_dir.mkdir(parents=True, exist_ok=True)
     for fold in range(N_FOLDS):
         train = primary_mask & (folds != fold)
-        test = folds == fold
-        if not test.any():
-            raise ValueError(f"Outer fold {fold} is empty.")
-        for model_name in MODEL_ORDER:
-            model = fit_oof_elasticnet(
-                designs[model_name][train],
-                y[train],
-                seed=SEED + fold,
+        test = primary_mask & (folds == fold)
+        for name in model_names:
+            model = fit_fold_local_elasticnet(
+                designs[name][train], y[train],
             )
-            joblib.dump(model, model_dir / f"{model_name}_fold{fold}.joblib")
-            selected = model.named_steps["elasticnetcv"]
-            fit_rows.append(
-                {
-                    "fold": fold,
-                    "model": model_name,
-                    "selected_alpha": float(selected.alpha_),
-                    "l1_ratio": float(selected.l1_ratio_),
-                    "n_iter": int(np.max(np.atleast_1d(selected.n_iter_))),
-                    "n_train_participants": int(train.sum()),
-                    "n_test_samples": int(test.sum()),
-                }
-            )
-            output = frame.loc[test, ["ID", "sampleID", "age_years", TARGET]].copy()
-            output["fold"] = fold
-            output["model"] = model_name
-            output["pred_bioage"] = model.predict(designs[model_name][test])
-            prediction_frames.append(output)
-    predictions = pd.concat(prediction_frames, ignore_index=True)
-    metrics = summarize_oof_predictions(predictions)
-    return predictions, metrics, pd.DataFrame(fit_rows)
+            joblib.dump(model, model_dir / f"{name}_fold{fold}.joblib")
+            fit_rows.append({"fold": fold, "model": name, **model.fit_diagnostics_,
+                             "n_train_participants": int(train.sum()), "n_test_samples": int(test.sum())})
+            output = frame.loc[test, ["ID", "sampleID", "age_years", "sex_male", TARGET]].copy()
+            output["fold"], output["model"] = fold, name
+            output["pred_bioage"] = model.predict(designs[name][test])
+            predictions.append(output)
+    predictions = pd.concat(predictions, ignore_index=True)
+    return predictions, summarize_oof_predictions(predictions), pd.DataFrame(fit_rows)
 
 
 def summarize_oof_predictions(predictions: pd.DataFrame) -> pd.DataFrame:
-    """Average held-out replicates within ID before calculating panel-1 metrics."""
-    rows: list[dict[str, object]] = []
-    for model_name in MODEL_ORDER:
-        subset = predictions[predictions["model"].eq(model_name)]
-        participant = subset.groupby("ID", as_index=False).agg(
-            clinical_phenoage=(TARGET, "mean"),
-            pred_bioage=("pred_bioage", "mean"),
-        )
-        truth = participant["clinical_phenoage"].to_numpy(float)
-        pred = participant["pred_bioage"].to_numpy(float)
-        rows.append(
-            {
-                "model": model_name,
-                "n": len(participant),
-                "mae": float(mean_absolute_error(truth, pred)),
-                "pearson_r": float(pearsonr(truth, pred).statistic),
-            }
-        )
+    """Calculate pooled performance on the 672 primary participant predictions."""
+    rows = []
+    for name, subset in predictions.groupby("model", sort=False):
+        if len(subset) != INCHIANTI_PARTICIPANTS or subset.ID.duplicated().any():
+            raise ValueError("OOF metrics require one primary prediction per participant.")
+        rows.append({"model": name, "n": len(subset),
+                     "mae": float(mean_absolute_error(subset[TARGET], subset.pred_bioage)),
+                     "pearson_r": float(pearsonr(subset[TARGET], subset.pred_bioage).statistic)})
     return pd.DataFrame(rows)
+
+
+def fit_duplicate_holdout_models(
+    frame: pd.DataFrame, designs: dict[str, np.ndarray],
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Train on 628 singleton participants and hold out all 88 duplicate profiles."""
+    ordered = sort_figure4_samples(frame)
+    row_by_sample = {sample: row for row, sample in enumerate(frame.sampleID.astype(str))}
+    order = np.asarray([row_by_sample[sample] for sample in ordered.sampleID], dtype=int)
+    counts = ordered.groupby("ID").sampleID.transform("size").to_numpy()
+    train, test = counts == 1, counts == 2
+    if train.sum() != 628 or test.sum() != 88 or not np.all(train | test):
+        raise ValueError("Duplicate reliability requires 628 singleton donors and 44 pairs.")
+    predictions, diagnostics = [], []
+    model_dir = OUTPUT_DIR / "duplicate_holdout_models"
+    model_dir.mkdir(parents=True, exist_ok=True)
+    for name, matrix in designs.items():
+        if name not in MODEL_ORDER:
+            raise ValueError(f"Unknown model {name}.")
+        values = np.asarray(matrix)[order]
+        model = fit_fold_local_elasticnet(
+            values[train], ordered.loc[train, TARGET].to_numpy(float),
+        )
+        joblib.dump(model, model_dir / f"{name}.joblib")
+        output = ordered.loc[test, ["ID", "sampleID", "age_years", "sex_male", TARGET]].copy()
+        output["fold"], output["model"] = -1, name
+        output["pred_bioage"] = model.predict(values[test])
+        predictions.append(output)
+        diagnostics.append({"model": name, **model.fit_diagnostics_,
+                            "n_train_participants": int(train.sum()), "n_test_samples": int(test.sum())})
+    return pd.concat(predictions, ignore_index=True), pd.DataFrame(diagnostics)
 
 
 def write_full_refit_artifacts(
@@ -367,7 +329,14 @@ def write_full_refit_artifacts(
     designs: dict[str, np.ndarray],
     feature_names: dict[str, list[str]],
 ) -> dict[str, Any]:
-    """Refit both external-use artifacts on one selected sample per participant."""
+    """Refit the requested external artifacts and export the component model formula."""
+    from .published_biometaclock import export_published_biometaclock
+
+    model_names = tuple(name for name in MODEL_ORDER if name in designs)
+    if not model_names or set(model_names) != set(designs) or set(feature_names) != set(designs):
+        raise ValueError("Unknown or incomplete external model collection.")
+    if "bio_metaclock" in model_names and feature_names["bio_metaclock"] != list(EXTERNAL_COMPONENTS):
+        raise ValueError("External BioMetaClock requires the ordered 17-component manifest.")
     selected = select_one_sample_per_participant(frame)
     position_by_sample = {sample: index for index, sample in enumerate(frame["sampleID"])}
     positions = np.array([position_by_sample[sample] for sample in selected["sampleID"]], dtype=int)
@@ -375,7 +344,7 @@ def write_full_refit_artifacts(
     model_dir = OUTPUT_DIR / "models"
     model_dir.mkdir(parents=True, exist_ok=True)
     summary: dict[str, Any] = {"n_participants": len(selected), "models": {}}
-    for model_name in MODEL_ORDER:
+    for model_name in model_names:
         model, fit = fit_full_refit_elasticnet(
             designs[model_name][positions],
             y,
@@ -386,6 +355,23 @@ def write_full_refit_artifacts(
             model_dir / f"{model_name}_features.csv", index=False
         )
         summary["models"][model_name] = {**fit, "n_features": len(feature_names[model_name])}
+        if model_name == "bio_metaclock":
+            weights_path, metadata_path = export_published_biometaclock(
+                model, feature_names[model_name], model_dir,
+                training_participants=len(selected),
+                search_config={
+                    "implementation": "GridSearchCV(Pipeline(SimpleImputer, StandardScaler, ElasticNet))",
+                    "alphas": ALPHAS.tolist(),
+                    "inner_cv": {"class": "KFold", "n_splits": N_FOLDS,
+                                 "shuffle": True, "random_state": SEED},
+                    "scoring": "neg_mean_squared_error", "refit": True,
+                    "preprocessing_fit_scope": "each inner CV training fold",
+                    "n_jobs": SEARCH_WORKERS, "pre_dispatch": SEARCH_WORKERS,
+                },
+                cv_convergence_warnings=fit["cv_convergence_warnings"],
+            )
+            summary["models"][model_name]["published_weights"] = relative_path(weights_path)
+            summary["models"][model_name]["published_metadata"] = relative_path(metadata_path)
     selected[["ID", "sampleID", TARGET]].to_csv(model_dir / "training_samples.csv", index=False)
     return summary
 
@@ -431,15 +417,15 @@ def main() -> int:
         validate="one_to_one",
     )
     designs = {
-        "bio_metaclock": numeric_matrix(training, OOF_COMPONENTS, dtype=np.float64),
-        "baseline": numeric_matrix(training, cpgs),
+        "bio_metaclock": numeric_matrix(training, OOF_COMPONENTS, dtype=np.float64, fill_missing=False),
+        "baseline": numeric_matrix(training, cpgs, dtype=np.float64, fill_missing=False),
     }
     external_designs = {
-        "bio_metaclock": numeric_matrix(training, EXTERNAL_COMPONENTS, dtype=np.float64),
+        "bio_metaclock": numeric_matrix(training, EXTERNAL_COMPONENTS, dtype=np.float64, fill_missing=False),
         "baseline": designs["baseline"],
     }
     feature_names = {"bio_metaclock": list(EXTERNAL_COMPONENTS), "baseline": cpgs}
-    folds = fixed_figure4_oof_folds(training)
+    folds = production_oof_folds(training)
     predictions, metrics, fold_fits = fit_oof_models(training, designs, folds=folds)
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     training[["ID", "sampleID", "age_years", TARGET]].assign(
@@ -448,7 +434,10 @@ def main() -> int:
             select_one_sample_per_participant(training)["sampleID"]
         ),
     ).to_csv(OUTPUT_DIR / "valid_samples_and_folds.csv", index=False)
-    predictions.to_csv(OUTPUT_DIR / "oof_predictions.csv", index=False)
+    save_oof_predictions(predictions, output_dir=OUTPUT_DIR)
+    duplicate_predictions, duplicate_fits = fit_duplicate_holdout_models(training, designs)
+    save_duplicate_predictions(duplicate_predictions, training, output_dir=OUTPUT_DIR)
+    duplicate_fits.to_csv(OUTPUT_DIR / "duplicate_holdout_selected_alphas.csv", index=False)
     metrics.to_csv(OUTPUT_DIR / "oof_metrics.csv", index=False)
     fold_fits.to_csv(OUTPUT_DIR / "oof_selected_alphas.csv", index=False)
     component_path = OUTPUT_DIR / "component_clock_predictions.csv"
@@ -457,24 +446,28 @@ def main() -> int:
     (OUTPUT_DIR / "run_summary.json").write_text(
         json.dumps(
             {
+                "config_id": PRODUCTION_CONFIG_ID,
                 "complete_case_filter": COMPLETE_CASE,
                 "outer_folds": N_FOLDS,
                 "outer_fold_group": "ID",
                 "oof_model": (
-                    "StandardScaler + ElasticNetCV; cv=5; selection=random; "
-                    "max_iter=1000; no selected-alpha refit"
+                    "GridSearchCV(SimpleImputer + StandardScaler + ElasticNet); "
+                    "fold-local preprocessing; scoring=neg_mean_squared_error; "
+                    "KFold(5, shuffle=True, random_state=0); selection=cyclic; max_iter=20000"
                 ),
                 "external_full_refit_model": (
-                    "StandardScaler + ElasticNetCV max_iter=10000, followed by a fresh "
-                    "selected-alpha ElasticNet max_iter=100000 on one sample per participant"
+                    "Same fixed 20000-iteration search and single selected-alpha pipeline refit on all 672 participants"
                 ),
                 "oof_component_features": list(OOF_COMPONENTS),
                 "external_component_features": list(EXTERNAL_COMPONENTS),
                 "oof_training_rows": "one lowest-suffix DNAm sample per participant",
-                "oof_prediction_rows": "all complete-case DNAm samples",
-                "metric_level": "participant mean of held-out DNAm predictions",
+                "oof_prediction_rows": "one primary DNAm sample per participant",
+                "baseline": "all 485577 DNAm features; zero imputation and scaling inside each training fold",
+                "duplicate_holdout": "628 singleton participants train; all 88 profiles from 44 pairs held out",
+                "convergence_policy": "fixed iteration cap; warnings and selected-refit diagnostics retained",
+                "metric_level": "672 pooled primary OOF predictions",
                 "oof_fold_assignment": {
-                    "path": relative_path(INCHIANTI_OOF_FOLD_ASSIGNMENT_PATH),
+                    "path": relative_path(PRODUCTION_OOF_FOLD_ASSIGNMENT_PATH),
                     "fold_labels": list(range(N_FOLDS)),
                 },
                 "full_refit": refit,

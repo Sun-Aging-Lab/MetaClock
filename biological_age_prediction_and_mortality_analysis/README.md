@@ -21,9 +21,15 @@ These inputs may be outside the repository. Build the shared table once:
 ## 1. Biological-age prediction
 
 Input: one sample per row with `ID`, `sampleID`, `age_years`,
-`clinical_phenoage`, `clinical_phenoage_complete_case`, and DNAm features. The donor-to-fold mapping is pinned in
-`inchianti_oof_fold_assignment.csv`, validated and mapped by donor ID
-rather than regenerated from input row order.
+`clinical_phenoage`, `clinical_phenoage_complete_case`, and DNAm features. The primary-profile donor-to-fold mapping is pinned in
+`inchianti_primary_oof_folds.csv`. Participants are sorted by numeric ID and
+sample suffix; the lowest-suffix sample is used for each participant. The
+19-component MetaClock and full-CpG baseline share five outer folds stratified
+by age decade and sex. Both use shuffled five-fold inner CV with seed 0,
+zero imputation and scaling inside each training fold, 30 alphas from 1 to
+1e-5, and cyclic elastic net with l1_ratio=0.5, max_iter=20000 and tol=1e-4.
+The baseline uses all 485,577 DNAm features without feature selection.
+The resulting OOF predictions and configuration manifest are reused below.
 
 ```bash
 python -m biological_age_prediction_and_mortality_analysis.run_biological_age_prediction
@@ -31,8 +37,10 @@ python -m biological_age_prediction_and_mortality_analysis.run_biological_age_pr
 
 ## 2. Duplicate-sample reliability
 
-Run script 1 first. This entry point reuses its participant-grouped OOF
-predictions, selects participants with exactly two complete-case DNAm samples.
+Run script 1 first. It also trains on 628 participants without duplicate
+profiles and predicts all 88 profiles from the 44 held-out participants with
+exactly two complete-case samples. This entry point uses those independent
+holdout predictions for duplicate-sample reliability.
 
 ```bash
 python -m biological_age_prediction_and_mortality_analysis.run_duplicate_sample_reliability
@@ -57,10 +65,10 @@ python -m biological_age_prediction_and_mortality_analysis.run_external_disease_
 ## 4. Cox analysis
 
 Input: the script-1 columns plus `survival_time_years`, `event`, and
-`sex_male`.  The script selects one baseline sample per participant, assigns
-the fixed Figure donor folds, trains the 19-component BioMeta and the direct baseline in five folds,
-uses Figure 4 panel-1 OOF ElasticNetCV configuration, and fits the
-three pooled-OOF Cox specifications after z-scoring every included covariate.
+`sex_male`. Run script 1 first. The script loads its primary-participant OOF
+predictions for the 19-component MetaClock and full-CpG baseline, adds observed
+Clinical PhenoAge, and fits three pooled-OOF Cox specifications after
+z-scoring every included covariate.
 
 ```bash
 python -m biological_age_prediction_and_mortality_analysis.run_cox_analysis
@@ -69,7 +77,9 @@ python -m biological_age_prediction_and_mortality_analysis.run_cox_analysis
 ## 5. Kaplan–Meier analysis
 
 Input: the script-1 columns plus `INTV_MOR` (`0` for alive/censored; `4`, `5`,
-or `6` for death at that follow-up wave).
+or `6` for death at that follow-up wave). Run script 1 first. The same OOF
+predictions used by Cox analysis are residualized against age and sex within
+each model; the lowest and highest 20% define the KM groups.
 
 ```bash
 python -m biological_age_prediction_and_mortality_analysis.run_kaplan_meier_analysis

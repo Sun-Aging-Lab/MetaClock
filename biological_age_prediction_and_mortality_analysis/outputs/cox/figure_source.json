@@ -1,19 +1,58 @@
 {
-  "change": "figure formatting and labels only; existing coefficients reused without refitting",
-  "source": "/orcd/pool/007/edsun_shared/yncheng/meta_clock_bio/output/pdf/figure4/04_cox_coefficients_standardized_source_data.csv",
-  "historical_estimate_component_count": null,
-  "historical_estimate_component_count_status": "not recoverable from retained aggregate source; this snapshot does not establish a 19-component refit",
-  "current_repo_analysis_code_component_count": 19,
-  "plot_label": {
-    "clinical_phenoage": "Biological Age"
+  "prediction_config_id": "figure4-primary19-fullcpg-foldlocal-v1",
+  "prediction_source": "shared biological_age_prediction/oof_predictions.csv",
+  "outer_folds": "primary participants; age-decade by sex; StratifiedKFold(5, shuffle=True, random_state=0)",
+  "prediction_model": "19-component MetaClock and full-CpG baseline; shared fold-local OOF predictions",
+  "cox_scope": "pooled OOF predictions; observed clinical PhenoAge comparator",
+  "cox_fit": "exact Figure 4 standardized specification: every covariate z-scored with population SD (ddof=0); CoxPHFitter alpha=0.05, Breslow baseline, penalizer=0.0; robust=False; show_progress=False",
+  "models": [
+    "bio_metaclock",
+    "baseline",
+    "clinical_phenoage"
+  ],
+  "bio_metaclock_components": [
+    "dnamphenoage",
+    "hrsinchphenoage",
+    "grimage",
+    "grimage2",
+    "dnamic",
+    "zhangmortality",
+    "systemsage",
+    "systemsageblood",
+    "systemsagebrain",
+    "systemsageheart",
+    "systemsagehormone",
+    "systemsageimmune",
+    "systemsageinflammation",
+    "systemsagekidney",
+    "systemsageliver",
+    "systemsagelung",
+    "systemsagemetabolic",
+    "systemsagemusculoskeletal",
+    "dunedinpace"
+  ],
+  "panels": {
+    "prediction_plus_chronological_age_sex": [
+      "prediction_z",
+      "age_z",
+      "sex_z"
+    ],
+    "prediction_plus_sex": [
+      "prediction_z",
+      "sex_z"
+    ],
+    "prediction_plus_chronological_age": [
+      "prediction_z",
+      "age_z"
+    ]
   },
-  "display_precision": "three significant digits in scientific notation",
   "software": {
+    "python": "3.11.14",
     "numpy": "2.3.5",
     "pandas": "2.3.3",
     "scikit-learn": "1.8.0",
     "lifelines": "0.30.3",
-    "matplotlib": "3.10.8",
-    "PyMuPDF": "1.28.0"
+    "pyaging": "0.1.30",
+    "anndata": "0.12.0"
   }
 }

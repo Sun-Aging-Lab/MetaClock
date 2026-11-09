@@ -3,8 +3,7 @@
 
 Edit only ``DATASET_PATH``. The published BioMetaClock weights are bundled in
 this repository. Run ``run_biological_age_prediction.py`` first only to create
-the direct-CpG baseline artifact, which is intentionally not bundled because
-it contains one weight per training CpG.
+the fitted full-CpG baseline pipeline.
 """
 
 from __future__ import annotations
@@ -23,7 +22,10 @@ import numpy as np
 import pandas as pd
 from matplotlib.colors import LinearSegmentedColormap
 from scipy.stats import ttest_ind
-from sklearn.linear_model import LinearRegression
+from sklearn.impute import SimpleImputer
+from sklearn.linear_model import ElasticNet, LinearRegression
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
 
 from repository_paths import relative_path
 
@@ -53,7 +55,7 @@ REQUIRED_COLUMNS = {"sampleID", "age", "disease_state"}
 
 
 def read_dataset(path: Path) -> pd.DataFrame:
-    """Read one row-oriented external DNAm CSV/CSV.GZ or Parquet dataset."""
+    """Read external DNAm data, interpreting the top-coded age 80+ as 80 years."""
     if not path.exists():
         raise FileNotFoundError(f"Set DATASET_PATH to the external disease dataset: {path}")
     frame = pd.read_parquet(path) if path.suffix.lower() == ".parquet" else pd.read_csv(path)
@@ -61,7 +63,8 @@ def read_dataset(path: Path) -> pd.DataFrame:
         raise KeyError(f"External dataset is missing columns: {sorted(missing)}")
     frame = frame.copy()
     frame["sampleID"] = frame["sampleID"].astype(str)
-    frame["age"] = pd.to_numeric(frame["age"], errors="coerce")
+    age = frame["age"].astype("string").str.strip().replace({"80+": "80"})
+    frame["age"] = pd.to_numeric(age, errors="raise")
     frame = frame.dropna(subset=["sampleID", "age", "disease_state"]).reset_index(drop=True)
     if frame["sampleID"].duplicated().any():
         raise ValueError("sampleID must identify one external DNAm row.")
@@ -98,6 +101,13 @@ def load_trained_artifact(name: str) -> tuple[Any, list[str]]:
     model = joblib.load(model_path)
     if int(getattr(model, "n_features_in_", -1)) != len(features):
         raise ValueError(f"{name} model and ordered feature manifest have different widths.")
+    if name == "baseline":
+        if (not isinstance(model, Pipeline) or len(model.steps) != 3
+                or not isinstance(model.steps[0][1], SimpleImputer)
+                or not isinstance(model.steps[1][1], StandardScaler)
+                or not isinstance(model.steps[2][1], ElasticNet)
+                or int(model.steps[2][1].n_features_in_) != len(features)):
+            raise ValueError("Baseline must use all DNAm features with imputation, scaling, and elastic net.")
     return model, features
 
 
@@ -141,11 +151,11 @@ def run_pyaging(frame: pd.DataFrame, clocks: list[str]) -> pd.DataFrame:
 
 def baseline_matrix(frame: pd.DataFrame, features: list[str]) -> np.ndarray:
     """Build the direct-CpG design in training order, zero-filling unavailable probes."""
-    matrix = np.zeros((len(frame), len(features)), dtype=np.float32)
+    matrix = np.zeros((len(frame), len(features)), dtype=np.float64)
     present = [feature for feature in features if feature in frame.columns]
     if present:
         positions = {feature: index for index, feature in enumerate(features)}
-        values = numeric_matrix(frame, present)
+        values = numeric_matrix(frame, present, dtype=np.float64)
         matrix[:, [positions[feature] for feature in present]] = values
     return matrix
 

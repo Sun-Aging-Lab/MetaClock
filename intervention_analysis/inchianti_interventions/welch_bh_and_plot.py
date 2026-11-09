@@ -39,6 +39,9 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 if (REPOSITORY_ROOT / "biological_age_prediction_and_mortality_analysis").is_dir():
     sys.path.insert(0, str(REPOSITORY_ROOT))
 
+from biological_age_prediction_and_mortality_analysis.data import _canonical_participant_ids
+
+
 PREDICTION_COLUMNS = (
     "ID", "sampleID", "age_years", "SEX", "pred_age", "bioage_age_sex_residual"
 )
@@ -84,6 +87,8 @@ def read_columns(path: Path, allowed: tuple[str, ...], required: tuple[str, ...]
     for name in ("ID", "sampleID", "comparison_id", "plot_label"):
         if name in frame and frame[name].str.strip().eq("").any():
             raise ValueError(f"{path.resolve()}: {name} contains an empty identifier or label")
+    if "ID" in frame:
+        frame["ID"] = _canonical_participant_ids(frame["ID"])
     return frame
 
 

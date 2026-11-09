@@ -1,5 +1,5 @@
 species_a,species_b,distance,ensembl_species_a,ensembl_species_b,ensembl_release,distance_definition,proxy_note
-BosTaurus,DelphinapterusLeucas,6.68,bos_taurus,delphinapterus_leucas,115,Ensembl Compara species-tree branch-path distance x100,
+BosTaurus,CanisLupusFamiliaris,9.301,bos_taurus,canis_lupus_familiaris,115,Ensembl Compara species-tree branch-path distance x100,
 BosTaurus,EquusCaballus,8.399,bos_taurus,equus_caballus,115,Ensembl Compara species-tree branch-path distance x100,
 BosTaurus,HeterocephalusGlaber,14.03,bos_taurus,heterocephalus_glaber_female,115,Ensembl Compara species-tree branch-path distance x100,
 BosTaurus,HomoSapiens,10.265,bos_taurus,homo_sapiens,115,Ensembl Compara species-tree branch-path distance x100,
@@ -8,14 +8,14 @@ BosTaurus,MusMusculus,14.966,bos_taurus,mus_musculus,115,Ensembl Compara species
 BosTaurus,OvisAries,2.329,bos_taurus,ovis_aries,115,Ensembl Compara species-tree branch-path distance x100,
 BosTaurus,PapioHamadryas,10.519,bos_taurus,papio_anubis,115,Ensembl Compara species-tree branch-path distance x100,papio_anubis used as Ensembl Compara proxy for Papio hamadryas
 BosTaurus,RattusNorvegicus,14.754,bos_taurus,rattus_norvegicus,115,Ensembl Compara species-tree branch-path distance x100,
-DelphinapterusLeucas,EquusCaballus,7.695,delphinapterus_leucas,equus_caballus,115,Ensembl Compara species-tree branch-path distance x100,
-DelphinapterusLeucas,HeterocephalusGlaber,13.326,delphinapterus_leucas,heterocephalus_glaber_female,115,Ensembl Compara species-tree branch-path distance x100,
-DelphinapterusLeucas,HomoSapiens,9.561,delphinapterus_leucas,homo_sapiens,115,Ensembl Compara species-tree branch-path distance x100,
-DelphinapterusLeucas,MacacaMulatta,9.738,delphinapterus_leucas,macaca_mulatta,115,Ensembl Compara species-tree branch-path distance x100,
-DelphinapterusLeucas,MusMusculus,14.262,delphinapterus_leucas,mus_musculus,115,Ensembl Compara species-tree branch-path distance x100,
-DelphinapterusLeucas,OvisAries,6.515,delphinapterus_leucas,ovis_aries,115,Ensembl Compara species-tree branch-path distance x100,
-DelphinapterusLeucas,PapioHamadryas,9.815,delphinapterus_leucas,papio_anubis,115,Ensembl Compara species-tree branch-path distance x100,papio_anubis used as Ensembl Compara proxy for Papio hamadryas
-DelphinapterusLeucas,RattusNorvegicus,14.05,delphinapterus_leucas,rattus_norvegicus,115,Ensembl Compara species-tree branch-path distance x100,
+CanisLupusFamiliaris,EquusCaballus,6.8,canis_lupus_familiaris,equus_caballus,115,Ensembl Compara species-tree branch-path distance x100,
+CanisLupusFamiliaris,HeterocephalusGlaber,12.717,canis_lupus_familiaris,heterocephalus_glaber_female,115,Ensembl Compara species-tree branch-path distance x100,
+CanisLupusFamiliaris,HomoSapiens,8.952,canis_lupus_familiaris,homo_sapiens,115,Ensembl Compara species-tree branch-path distance x100,
+CanisLupusFamiliaris,MacacaMulatta,9.129,canis_lupus_familiaris,macaca_mulatta,115,Ensembl Compara species-tree branch-path distance x100,
+CanisLupusFamiliaris,MusMusculus,13.653,canis_lupus_familiaris,mus_musculus,115,Ensembl Compara species-tree branch-path distance x100,
+CanisLupusFamiliaris,OvisAries,9.136,canis_lupus_familiaris,ovis_aries,115,Ensembl Compara species-tree branch-path distance x100,
+CanisLupusFamiliaris,PapioHamadryas,9.206,canis_lupus_familiaris,papio_anubis,115,Ensembl Compara species-tree branch-path distance x100,papio_anubis used as Ensembl Compara proxy for Papio hamadryas
+CanisLupusFamiliaris,RattusNorvegicus,13.441,canis_lupus_familiaris,rattus_norvegicus,115,Ensembl Compara species-tree branch-path distance x100,
 EquusCaballus,HeterocephalusGlaber,11.815,equus_caballus,heterocephalus_glaber_female,115,Ensembl Compara species-tree branch-path distance x100,
 EquusCaballus,HomoSapiens,8.05,equus_caballus,homo_sapiens,115,Ensembl Compara species-tree branch-path distance x100,
 EquusCaballus,MacacaMulatta,8.227,equus_caballus,macaca_mulatta,115,Ensembl Compara species-tree branch-path distance x100,

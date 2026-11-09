@@ -318,7 +318,7 @@ def write_dataset(
         )
     matrix = np.asarray(
         beta.values[:, sample_positions].T,
-        dtype=np.float32,
+        dtype=np.float64,
     )
     beta_frame = pd.DataFrame(matrix, columns=selected_names)
     wide = pd.concat([metadata.reset_index(drop=True), beta_frame], axis=1, copy=False)

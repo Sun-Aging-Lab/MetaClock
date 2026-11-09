@@ -4,7 +4,8 @@
 No command-line arguments are required.  The script discovers every completed
 dataset written by ``train_species_generalization.py`` and creates four layouts:
 from 10 samples and from the shared mean-baseline cutoff, each with and without
-the Mean curve.  Every layout is exported as PDF and SVG.
+the Mean curve and fixed pretrained Universal Clock 2 reference. Every layout
+is exported as PDF and SVG.
 """
 
 from __future__ import annotations
@@ -20,7 +21,11 @@ from matplotlib.axes import Axes
 from matplotlib.ticker import FormatStrFormatter
 
 from generalization.fonts import register_fonts
-from .species_config import GENERALIZATION_CONFIG_ID as EXPECTED_CONFIG_ID
+from .species_config import (
+    EXPECTED_SAMPLE_COUNTS,
+    SPECIES,
+    GENERALIZATION_CONFIG_ID as EXPECTED_CONFIG_ID,
+)
 
 matplotlib.use("Agg", force=True)
 
@@ -39,9 +44,48 @@ PANEL_HEIGHT_MM = 60.0
 DIRECT_COLOR = "#B77729"
 META_COLOR = "#4286A1"
 MEAN_COLOR = "#7A7A7A"
+UNIVERSAL_COLOR = "#EFC28B"
+UNIVERSAL_BASELINE_PATH = Path(__file__).with_name("universal_clock2_species_mae.csv")
 
 
 ######################## SHARD AGGREGATION ###################################
+
+
+def load_universal_mae(species: str, provenance: dict[str, object]) -> float:
+    """Load fixed pretrained Clock2 MAE on the current transformed-age scale.
+
+    Clock2 uses the published coefficients (doi:10.1038/s43587-023-00462-6)
+    and author life-history parameters v2.0.0, converted to this target scale.
+    """
+    frame = pd.read_csv(UNIVERSAL_BASELINE_PATH)
+    required = {
+        "species", "mae", "n_total", "n_test", "target_scale",
+        "prediction_scale_aligned", "clipped_or_excluded_predictions",
+    }
+    if not required.issubset(frame.columns):
+        raise ValueError("Universal Clock 2 table is missing required columns")
+    if frame["species"].duplicated().any() or set(frame["species"]) != set(SPECIES):
+        raise ValueError("Universal Clock 2 table must contain the ten target species")
+    if not np.isfinite(frame["mae"]).all() or frame["mae"].lt(0).any():
+        raise ValueError("Universal Clock 2 MAEs must be finite and nonnegative")
+    scale = "-log(-log((age + current_gestation)/(reported_max + current_gestation)))"
+    if not (
+        frame["target_scale"].eq(scale).all()
+        and frame["prediction_scale_aligned"].eq(True).all()
+        and frame["clipped_or_excluded_predictions"].eq(0).all()
+    ):
+        raise ValueError("Universal Clock 2 predictions must use the complete current target scale")
+    row = frame.set_index("species").loc[species]
+    total = EXPECTED_SAMPLE_COUNTS[species]
+    n_train = int(total * 0.8)
+    if not (
+        row["n_total"] == total and row["n_test"] == total - n_train
+        and provenance.get("split") == {"train_fraction": 0.8, "seed": 105}
+        and provenance.get("training_pool_samples") == n_train
+        and provenance.get("test_samples") == total - n_train
+    ):
+        raise ValueError(f"{species}: Universal Clock 2 uses a different fixed test split")
+    return float(row["mae"])
 
 
 def validate_shard(frame: pd.DataFrame, size_index: int) -> None:
@@ -231,8 +275,13 @@ def render_panel(
     cutoffs: dict[str, int],
     *,
     include_mean: bool,
+    universal_mae: float | None = None,
 ) -> tuple[Path, Path]:
     """Render paired SVM/ENCV subplots with a common displayed cutoff."""
+    if include_mean and (
+        universal_mae is None or not np.isfinite(universal_mae) or universal_mae < 0
+    ):
+        raise ValueError("Baseline panels require a finite, nonnegative Universal Clock 2 MAE")
     configure_style()
     figure, (svm_axis, en_axis) = plt.subplots(
         1, 2, figsize=(PANEL_WIDTH_MM / 25.4, PANEL_HEIGHT_MM / 25.4)
@@ -247,13 +296,20 @@ def render_panel(
             mean = select(summary, "Mean", cutoff)
             draw_curve(axis, mean, "Mean", MEAN_COLOR, "D", linestyle="--", alpha=0.08)
             displayed.append(mean)
+            axis.axhline(
+                universal_mae, color=UNIVERSAL_COLOR, label="Universal Clock",
+                linestyle="--", linewidth=0.84, zorder=2,
+            )
+            reference = mean.copy()
+            reference[["mean", "q025", "q975"]] = universal_mae
+            displayed.append(reference)
         direct_values, meta_values = select(summary, direct, cutoff), select(summary, meta, cutoff)
         draw_curve(axis, direct_values, direct, DIRECT_COLOR, "o")
         draw_curve(axis, meta_values, meta, META_COLOR, "s")
         displayed.extend((direct_values, meta_values))
         axis.set_title(family, fontweight="normal", pad=3.0)
         finish_axis(axis, displayed, show_ylabel=axis is svm_axis)
-    figure.text(
+    heading = figure.text(
         0.575,
         0.89,
         title,
@@ -264,6 +320,17 @@ def render_panel(
         fontstyle="italic",
     )
     figure.subplots_adjust(left=0.22, right=0.96, bottom=0.23, top=0.80, wspace=0.48)
+    figure.canvas.draw()
+    renderer = figure.canvas.get_renderer()
+    heading_box = heading.get_window_extent(renderer)
+    title_boxes = [axis.title.get_window_extent(renderer) for axis in (svm_axis, en_axis)]
+    shift = max(
+        (box.y1 + 3 * figure.dpi / 72 - heading_box.y0
+         for box in title_boxes if heading_box.overlaps(box)),
+        default=0,
+    )
+    if shift:
+        heading.set_y(heading.get_position()[1] + shift / figure.bbox.height)
     output_stem.parent.mkdir(parents=True, exist_ok=True)
     outputs = output_stem.with_suffix(".pdf"), output_stem.with_suffix(".svg")
     for output in outputs:
@@ -278,6 +345,7 @@ def render_panel(
 def plot_dataset(dataset_dir: Path) -> list[Path]:
     """Aggregate one dataset and write all source data, cutoffs, and plots."""
     raw, provenance = load_dataset(dataset_dir)
+    universal_mae = load_universal_mae(dataset_dir.name, provenance)
     summary = summarize(raw)
     output_dir = FIGURE_ROOT / dataset_dir.name
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -320,6 +388,7 @@ def plot_dataset(dataset_dir: Path) -> list[Path]:
                     output_dir / f"{dataset_dir.name}_{cutoff_name}{suffix}",
                     family_cutoffs,
                     include_mean=include_mean,
+                    universal_mae=universal_mae,
                 )
             )
     return outputs
@@ -329,7 +398,8 @@ def plot_dataset(dataset_dir: Path) -> list[Path]:
 def main() -> int:
     if not RESULT_ROOT.is_dir():
         raise FileNotFoundError(f"No training results found under {RESULT_ROOT}")
-    dataset_dirs = sorted(path for path in RESULT_ROOT.iterdir() if (path / "shards").is_dir())
+    dataset_dirs = [RESULT_ROOT / species for species in SPECIES
+                    if (RESULT_ROOT / species / "shards").is_dir()]
     if not dataset_dirs:
         raise FileNotFoundError(f"No completed datasets found under {RESULT_ROOT}")
     outputs = [output for dataset_dir in dataset_dirs for output in plot_dataset(dataset_dir)]
