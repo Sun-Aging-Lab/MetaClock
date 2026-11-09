@@ -14,8 +14,8 @@ REPOSITORY_ROOT="$(cd -- "${SCRIPT_DIR}/../.." && pwd)"
 cd "${REPOSITORY_ROOT}"
 
 # One Slurm CPU task owns one species/sample-size point and all 50 resamples.
-# ElasticNetCV sees the four allocated CPUs through n_jobs=-1.
-SPECIES=(BosTaurus DelphinapterusLeucas EquusCaballus HeterocephalusGlaber HomoSapiens MacacaMulatta MusMusculus OvisAries PapioHamadryas RattusNorvegicus)
+# GridSearchCV uses the allocated CPUs for complete pipeline fits.
+SPECIES=(BosTaurus CanisLupusFamiliaris EquusCaballus HeterocephalusGlaber HomoSapiens MacacaMulatta MusMusculus OvisAries PapioHamadryas RattusNorvegicus)
 export TARGET_SPECIES="${SPECIES[$((SLURM_ARRAY_TASK_ID / 30))]}"
 export METACLOCK_SIZE_INDEX="$((SLURM_ARRAY_TASK_ID % 30))"
 export OMP_NUM_THREADS="${SLURM_CPUS_PER_TASK}"

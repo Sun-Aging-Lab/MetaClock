@@ -8,6 +8,7 @@ Each test dataset becomes one scatter panel.
 
 from __future__ import annotations
 
+import random
 from pathlib import Path
 
 from repository_matplotlib import MPLCONFIGDIR
@@ -25,9 +26,9 @@ from matplotlib.lines import Line2D
 from matplotlib.patches import Rectangle
 from scipy.stats import pearsonr
 from sklearn.ensemble import RandomForestRegressor
-from sklearn.linear_model import ElasticNetCV, LassoCV, RidgeCV
+from sklearn.linear_model import ElasticNet, Lasso, Ridge
 from sklearn.metrics import mean_absolute_error
-from sklearn.model_selection import KFold
+from sklearn.model_selection import GridSearchCV, KFold
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 from sklearn.svm import SVR
@@ -144,24 +145,34 @@ def _cv(n_samples: int) -> KFold:
 def sklearn_architectures(n_samples: int) -> dict[str, object]:
     """Return the six non-neural Figure-2 architectures.
 
-    LightGBM is the actual architecture rather than an sklearn substitute.
+    Search over complete pipelines so every CV split fits its own scaler.
+    Selection uses MSE for ElasticNet and Lasso, and R-squared for Ridge.
+    LightGBM uses LGBMRegressor.
     """
     alphas = np.logspace(-5, 0, 30)
     cv = _cv(n_samples)
     return {
-        "ElasticNet": Pipeline(
-            [
+        "ElasticNet": GridSearchCV(
+            Pipeline([
                 ("scaler", StandardScaler()),
-                ("model", ElasticNetCV(alphas=alphas, cv=cv, max_iter=20_000, random_state=42)),
-            ]
+                ("model", ElasticNet(max_iter=20_000, random_state=42)),
+            ]),
+            {"model__alpha": alphas},
+            cv=cv, scoring="neg_mean_squared_error", error_score="raise",
         ),
-        "Lasso": Pipeline(
-            [
+        "Lasso": GridSearchCV(
+            Pipeline([
                 ("scaler", StandardScaler()),
-                ("model", LassoCV(alphas=alphas, cv=cv, max_iter=20_000, random_state=42)),
-            ]
+                ("model", Lasso(max_iter=20_000, random_state=42)),
+            ]),
+            {"model__alpha": alphas},
+            cv=cv, scoring="neg_mean_squared_error", error_score="raise",
         ),
-        "Ridge": Pipeline([("scaler", StandardScaler()), ("model", RidgeCV(alphas=alphas, cv=cv))]),
+        "Ridge": GridSearchCV(
+            Pipeline([("scaler", StandardScaler()), ("model", Ridge())]),
+            {"model__alpha": alphas},
+            cv=cv, scoring="r2", error_score="raise",
+        ),
         "RF": RandomForestRegressor(random_state=42),
         "SVR": Pipeline([("scaler", StandardScaler()), ("model", SVR(kernel="linear"))]),
         "LightGBM": LGBMRegressor(random_state=42, n_jobs=-1, verbosity=-1),
@@ -181,6 +192,7 @@ class TorchMLP(torch.nn.Module):
             torch.nn.Linear(100, 50),
             torch.nn.BatchNorm1d(50),
             torch.nn.ReLU(),
+            torch.nn.Dropout(0.5),
             torch.nn.Linear(50, 1),
         )
 
@@ -188,34 +200,63 @@ class TorchMLP(torch.nn.Module):
         return self.network(features).squeeze(1)
 
 
-def fit_mlp(features: np.ndarray, age: np.ndarray) -> tuple[TorchMLP, StandardScaler]:
-    """Fit the documented 128-sample minibatch torch MLP."""
-    torch.manual_seed(105)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed_all(105)
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+def fit_mlp(
+    features: np.ndarray,
+    age: np.ndarray,
+    *,
+    device: str = "cpu",
+    history: list[dict[str, float]] | None = None,
+) -> tuple[TorchMLP, StandardScaler]:
+    """Fit the MLP using CPU by default.
+
+    Use AdamW, two Dropout layers, the global shuffle RNG, and a
+    ReduceLROnPlateau schedule.
+    Optional history records training MSE and learning rate without affecting
+    training; neither model selection nor scheduling uses test observations.
+    """
+    selected_device = torch.device(device)
     scaler = StandardScaler().fit(features)
     x = torch.tensor(scaler.transform(features), dtype=torch.float32)
     y = torch.tensor(age, dtype=torch.float32)
     batch_size = min(128, len(x))
     while batch_size > 2 and len(x) % batch_size == 1:
         batch_size -= 1
-    generator = torch.Generator().manual_seed(105)
     batches = torch.utils.data.DataLoader(
         torch.utils.data.TensorDataset(x, y),
         batch_size=batch_size,
         shuffle=True,
-        generator=generator,
     )
-    model = TorchMLP(x.shape[1]).to(device)
-    optimiser = torch.optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-3)
-    for _ in range(500):
-        model.train()
+    random.seed(105)
+    np.random.seed(105)
+    torch.manual_seed(105)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(105)
+    model = TorchMLP(x.shape[1]).to(selected_device)
+    optimiser = torch.optim.AdamW(model.parameters(), lr=1e-3, weight_decay=1e-3)
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optimiser, mode="min", factor=0.2, patience=30, threshold=1e-2
+    )
+    model.train()
+    for epoch in range(500):
+        total_mse = 0.0
+        learning_rate = float(optimiser.param_groups[0]["lr"])
         for batch_x, batch_y in batches:
             optimiser.zero_grad()
-            loss = torch.nn.functional.mse_loss(model(batch_x.to(device)), batch_y.to(device))
+            loss = torch.nn.functional.mse_loss(
+                model(batch_x.to(selected_device)), batch_y.to(selected_device)
+            )
+            total_mse += float(loss.item()) * len(batch_x)
             loss.backward()
             optimiser.step()
+        epoch_mse = total_mse / len(x)
+        scheduler.step(epoch_mse)
+        if history is not None:
+            history.append({
+                "epoch": epoch + 1,
+                "training_mse": epoch_mse,
+                "learning_rate": learning_rate,
+                "next_learning_rate": float(optimiser.param_groups[0]["lr"]),
+            })
     model.eval()
     return model, scaler
 

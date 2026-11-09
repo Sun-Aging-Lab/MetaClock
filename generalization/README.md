@@ -1,5 +1,3 @@
-
-
 ## Array: download, PyAging, prepare, train/test
 
 ```bash
@@ -32,19 +30,14 @@ python -m generalization.tissue.plot_tissue_generalization
 
 The one-dataset Slurm files are `GSE175458_lung.sbatch`,
 `GSE232891_saliva.sbatch`, and `GSE287331_breast.sbatch`. The three preparation
-commands accept the matching repeatable `--gse` option. 
+commands accept the matching repeatable `--gse` option.
 
-## Species input and workflow
+## Species
 
 The species evolution plots read three pairwise tables from
 `generalization/species/`: `pairwise_evolutionary_distances.csv`,
 `pairwise_maximum_lifespan_differences.csv`, and
 `pairwise_gestation_time_differences.csv`.
-
-## Species
-
-The target transformation rounds every gestation value to three decimal
-places before calculating relative age.
 
 ```bash
 python -m generalization.species.fetch_gse223748
@@ -59,5 +52,3 @@ python -m generalization.species.plot_species_evolution
 After changing the component configuration, rerun input preparation (including
 the pooled CpG input), all eleven component jobs, LOO feature generation, and
 the species generalization jobs before plotting.
-
-

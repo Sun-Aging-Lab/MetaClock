@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Evaluate duplicate samples with the same held-out OOF models as panel 1."""
+"""Evaluate all duplicate profiles using models trained on singleton participants."""
 
 from __future__ import annotations
 
@@ -16,24 +16,25 @@ from scipy.stats import pearsonr
 from repository_paths import relative_path
 
 from .config import INCHIANTI_DUPLICATE_PAIRS
-from .data import complete_case_mask, read_analysis_dataset
+from .data import complete_case_mask, read_analysis_dataset, sort_figure4_samples
+from .production_oof import load_duplicate_predictions
 from .plotting import COLORS, LABELS, clean_axis, configure_style, save_vector_pair
 from .provenance import software_versions
 
 ROOT = Path(__file__).resolve().parent
 DATASET_PATH = ROOT / "outputs" / "preprocessing" / "inchianti_analysis_ready.parquet"
-PREDICTIONS_PATH = ROOT / "outputs" / "biological_age_prediction" / "oof_predictions.csv"
+PREDICTIONS_PATH = ROOT / "outputs" / "biological_age_prediction" / "duplicate_holdout_predictions.csv"
 OUTPUT_DIR = ROOT / "outputs" / "duplicate_sample_reliability"
 
 TARGET = "clinical_phenoage"
 COMPLETE_CASE = "clinical_phenoage_complete_case"
 MODEL_ORDER = ("bio_metaclock", "baseline")
-DATASET_COLUMNS = ["ID", "sampleID", "age_years", TARGET, COMPLETE_CASE]
+DATASET_COLUMNS = ["ID", "sampleID", "age_years", "sex_male", TARGET, COMPLETE_CASE]
 
 
 def valid_sample_manifest(path: Path) -> pd.DataFrame:
     """Return the exact Clinical-PhenoAge-complete DNAm sample manifest."""
-    frame = read_analysis_dataset(path, columns=DATASET_COLUMNS)
+    frame = read_analysis_dataset(path, columns=DATASET_COLUMNS, float_precision="round_trip")
     frame["ID"] = pd.to_numeric(frame["ID"], errors="coerce")
     frame["sampleID"] = frame["sampleID"].astype(str)
     frame[TARGET] = pd.to_numeric(frame[TARGET], errors="coerce")
@@ -42,35 +43,12 @@ def valid_sample_manifest(path: Path) -> pd.DataFrame:
     )
     if frame["sampleID"].duplicated().any():
         raise ValueError("sampleID must identify one DNAm row.")
-    return frame.reset_index(drop=True)
+    return sort_figure4_samples(frame)
 
 
-def load_formal_oof(path: Path, valid: pd.DataFrame) -> pd.DataFrame:
-    """Validate and return the two trained-model predictions from panel 1."""
-    if not path.exists():
-        raise FileNotFoundError(
-            f"Run run_biological_age_prediction.py first; missing OOF predictions: {path}"
-        )
-    predictions = pd.read_csv(path)
-    required = {"ID", "sampleID", "fold", "model", "pred_bioage"}
-    if missing := required.difference(predictions.columns):
-        raise ValueError(f"OOF predictions are missing columns: {sorted(missing)}")
-    predictions = predictions[predictions["model"].isin(MODEL_ORDER)].copy()
-    predictions["ID"] = pd.to_numeric(predictions["ID"], errors="coerce")
-    predictions["sampleID"] = predictions["sampleID"].astype(str)
-    expected = pd.MultiIndex.from_product(
-        [valid["sampleID"].tolist(), MODEL_ORDER], names=["sampleID", "model"]
-    )
-    observed = pd.MultiIndex.from_frame(predictions[["sampleID", "model"]])
-    if observed.has_duplicates or set(observed) != set(expected):
-        raise ValueError("OOF predictions must contain one row per valid sample and trained model.")
-    id_by_sample = valid.set_index("sampleID")["ID"]
-    expected_id = predictions["sampleID"].map(id_by_sample)
-    if not predictions["ID"].eq(expected_id).all():
-        raise ValueError("OOF prediction IDs do not match the valid sample manifest.")
-    if predictions.groupby("ID")["fold"].nunique().max() != 1:
-        raise ValueError("Both DNAm rows from a participant must use the same held-out fold.")
-    return predictions
+def load_formal_holdout(path: Path, valid: pd.DataFrame) -> pd.DataFrame:
+    """Read the shared duplicate holdout after checking its configuration and cohort."""
+    return load_duplicate_predictions(valid, output_dir=path.parent, model_names=MODEL_ORDER)
 
 
 def paired_differences(predictions: pd.DataFrame, valid: pd.DataFrame) -> pd.DataFrame:
@@ -80,7 +58,7 @@ def paired_differences(predictions: pd.DataFrame, valid: pd.DataFrame) -> pd.Dat
     held_out = predictions[predictions["ID"].isin(duplicate_ids)].copy()
     rows: list[dict[str, object]] = []
     for (participant, model), pair in held_out.groupby(["ID", "model"], sort=True):
-        pair = pair.sort_values("sampleID", kind="mergesort")
+        pair = sort_figure4_samples(pair)
         if len(pair) != 2:
             raise ValueError(f"Expected two valid samples for ID={participant}, model={model}.")
         first, second = pair.iloc[0], pair.iloc[1]
@@ -139,9 +117,9 @@ def plot_reliability(summary: pd.DataFrame) -> None:
 
 
 def main() -> int:
-    """Reuse formal OOF predictions and summarize the valid replicate pairs."""
+    """Summarize the 44 pairs held out together from all training."""
     valid = valid_sample_manifest(DATASET_PATH)
-    predictions = load_formal_oof(PREDICTIONS_PATH, valid)
+    predictions = load_formal_holdout(PREDICTIONS_PATH, valid)
     pairs = paired_differences(predictions, valid)
     if pairs["ID"].nunique() != INCHIANTI_DUPLICATE_PAIRS:
         raise ValueError(
@@ -157,7 +135,7 @@ def main() -> int:
                 "prediction_source": relative_path(PREDICTIONS_PATH),
                 "complete_case_filter": COMPLETE_CASE,
                 "pair_rule": "exactly two complete-case DNAm samples per participant",
-                "held_out_model_rule": "same participant-grouped OOF model as panel 1",
+                "held_out_model_rule": "628 singleton participants train; all 88 profiles from 44 paired participants held out",
                 "models": list(MODEL_ORDER),
                 "n_pairs": int(pairs["ID"].nunique()),
                 "software": software_versions(["pandas", "scipy"]),

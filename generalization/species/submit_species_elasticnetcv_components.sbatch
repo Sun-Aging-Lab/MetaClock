@@ -8,7 +8,7 @@
 #SBATCH --error=slurm-%x-%A_%a.err
 
 set -euo pipefail
-SOURCES=(BosTaurus DelphinapterusLeucas EquusCaballus HeterocephalusGlaber HomoSapiens MacacaMulatta MusMusculus OvisAries PapioHamadryas RattusNorvegicus alltissueconcat)
+SOURCES=(BosTaurus CanisLupusFamiliaris EquusCaballus HeterocephalusGlaber HomoSapiens MacacaMulatta MusMusculus OvisAries PapioHamadryas RattusNorvegicus alltissueconcat)
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 cd "$(cd -- "${SCRIPT_DIR}/../.." && pwd)"
 export OMP_NUM_THREADS=1

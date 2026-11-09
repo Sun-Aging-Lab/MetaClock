@@ -18,6 +18,7 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import SplineTransformer
 
 from generalization.fonts import register_fonts
+from .species_config import SPECIES
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 RESULT_ROOT = PROJECT_ROOT / "results" / "generalization" / "species"
@@ -33,18 +34,6 @@ EVOLUTION_STYLE = {
     "maximum_lifespan_difference_years": ("#7895A1", "#466B7A", "#C7D3D8"),
     "gestation_difference_days": ("#AC8782", "#8A625E", "#D8C4C1"),
 }
-SPECIES = (
-    "BosTaurus",
-    "DelphinapterusLeucas",
-    "EquusCaballus",
-    "HeterocephalusGlaber",
-    "HomoSapiens",
-    "MacacaMulatta",
-    "MusMusculus",
-    "OvisAries",
-    "PapioHamadryas",
-    "RattusNorvegicus",
-)
 PANELS = (
     (
         INPUT_ROOT / "pairwise_evolutionary_distances.csv",
@@ -99,7 +88,8 @@ def configure_style() -> None:
 
 def collect_evolution_coefficients() -> pd.DataFrame | None:
     """Collect ten target-species coefficient tables, or report pending work."""
-    paths = sorted(RESULT_ROOT.glob("*/evolution_coefficients.tsv"))
+    paths = [RESULT_ROOT / species / "evolution_coefficients.tsv" for species in SPECIES]
+    paths = [path for path in paths if path.is_file()]
     if not paths:
         print(
             "[evolution pending] No *_elasticnetcv inputs were supplied; "
@@ -133,7 +123,9 @@ def collect_evolution_coefficients() -> pd.DataFrame | None:
     coefficients = pd.to_numeric(frame["coefficient"], errors="raise").to_numpy(float)
     if not np.isfinite(coefficients).all() or (coefficients < 0).any():
         raise ValueError("Evolution coefficients must be finite and non-negative")
-    return frame.loc[:, ["test_species", "component_species", "coefficient"]]
+    return frame.loc[:, ["test_species", "component_species", "coefficient"]].sort_values(
+        ["test_species", "component_species"]
+    ).reset_index(drop=True)
 
 
 def expected_pair_set() -> set[frozenset[str]]:

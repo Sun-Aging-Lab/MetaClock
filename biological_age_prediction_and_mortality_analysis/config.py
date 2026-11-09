@@ -44,17 +44,18 @@ def load_manifest(path: Path = MANIFEST_PATH) -> dict[str, Any]:
     prefix_counts = dnam["prefix_counts"]
     if int(dnam["total"]) != sum(int(value) for value in prefix_counts.values()):
         raise ValueError("InCHIANTI DNAm feature prefix counts do not sum to the total.")
-    fold_assignment = biological["oof_fold_assignment"]
+    fold_assignment = biological["production_oof"]
+    if int(fold_assignment["baseline_features"]) != int(dnam["total"]):
+        raise ValueError("The biological-age baseline must use every InCHIANTI DNAm feature.")
+    counts = {int(fold): int(count) for fold, count in fold_assignment["fold_counts"].items()}
     if (
         int(fold_assignment["rows"]) != int(biological["inchianti_participants"])
         or int(fold_assignment["folds"]) != 5
-        or fold_assignment["id_column"] != "ID"
-        or fold_assignment["fold_column"] != "fold"
-        or tuple(fold_assignment["fold_labels"]) != tuple(range(5))
-        or sum(int(value) for value in fold_assignment["fold_counts"].values())
-        != int(fold_assignment["rows"])
+        or set(counts) != set(range(5))
+        or any(count <= 0 for count in counts.values())
+        or sum(counts.values()) != int(fold_assignment["rows"])
     ):
-        raise ValueError("The fixed InCHIANTI OOF fold manifest metadata is inconsistent.")
+        raise ValueError("The primary-participant OOF fold manifest metadata is inconsistent.")
     return manifest
 
 
@@ -74,11 +75,10 @@ INCHIANTI_COMPLETE_CASE_SAMPLES = int(BIOLOGICAL_ANALYSIS["inchianti_complete_ca
 INCHIANTI_PARTICIPANTS = int(BIOLOGICAL_ANALYSIS["inchianti_participants"])
 INCHIANTI_DUPLICATE_PAIRS = int(BIOLOGICAL_ANALYSIS["inchianti_duplicate_pairs"])
 INCHIANTI_COX_EVENTS = int(BIOLOGICAL_ANALYSIS["inchianti_cox_events"])
-OOF_FOLD_ASSIGNMENT = BIOLOGICAL_ANALYSIS["oof_fold_assignment"]
-INCHIANTI_OOF_FOLD_ASSIGNMENT_PATH = MANIFEST_PATH.parent / str(
-    OOF_FOLD_ASSIGNMENT["path"]
-)
-INCHIANTI_OOF_FOLDS = int(OOF_FOLD_ASSIGNMENT["folds"])
+PRODUCTION_OOF = BIOLOGICAL_ANALYSIS["production_oof"]
+INCHIANTI_OOF_FOLDS = int(PRODUCTION_OOF["folds"])
+PRODUCTION_CONFIG_ID = str(PRODUCTION_OOF["config_id"])
+PRODUCTION_OOF_FOLD_ASSIGNMENT_PATH = MANIFEST_PATH.parent / str(PRODUCTION_OOF["path"])
 
 
 def require_exact_sequence(observed: list[str], expected: tuple[str, ...], label: str) -> None:

@@ -1,0 +1,11 @@
+species,species_latin,model,mae,n_total,n_test,target_scale,prediction_scale_aligned,clipped_or_excluded_predictions
+MusMusculus,Mus musculus,Universal Clock,0.14675110903328603,3832,767,-log(-log((age + current_gestation)/(reported_max + current_gestation))),True,0
+HomoSapiens,Homo sapiens,Universal Clock,0.12079784616757398,1126,226,-log(-log((age + current_gestation)/(reported_max + current_gestation))),True,0
+CanisLupusFamiliaris,Canis lupus familiaris,Universal Clock,0.11919328019277829,742,149,-log(-log((age + current_gestation)/(reported_max + current_gestation))),True,0
+RattusNorvegicus,Rattus norvegicus,Universal Clock,0.20618488138055327,601,121,-log(-log((age + current_gestation)/(reported_max + current_gestation))),True,0
+BosTaurus,Bos taurus,Universal Clock,0.11173823950169867,455,91,-log(-log((age + current_gestation)/(reported_max + current_gestation))),True,0
+OvisAries,Ovis aries,Universal Clock,0.10044138599852871,430,86,-log(-log((age + current_gestation)/(reported_max + current_gestation))),True,0
+HeterocephalusGlaber,Heterocephalus glaber,Universal Clock,0.16520922527230544,411,83,-log(-log((age + current_gestation)/(reported_max + current_gestation))),True,0
+EquusCaballus,Equus caballus,Universal Clock,0.08319805985428005,350,70,-log(-log((age + current_gestation)/(reported_max + current_gestation))),True,0
+PapioHamadryas,Papio hamadryas,Universal Clock,0.16009683103176367,325,65,-log(-log((age + current_gestation)/(reported_max + current_gestation))),True,0
+MacacaMulatta,Macaca mulatta,Universal Clock,0.1714555554855938,274,55,-log(-log((age + current_gestation)/(reported_max + current_gestation))),True,0

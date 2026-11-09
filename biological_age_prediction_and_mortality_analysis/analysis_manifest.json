@@ -3,24 +3,16 @@
   "biological_analysis": {
     "inchianti_dnam_features": {
       "total": 485577,
-      "prefix_counts": {"cg": 482421, "ch.": 3091, "rs": 65}
+      "prefix_counts": {
+        "cg": 482421,
+        "ch.": 3091,
+        "rs": 65
+      }
     },
     "inchianti_complete_case_samples": 716,
     "inchianti_participants": 672,
     "inchianti_duplicate_pairs": 44,
     "inchianti_cox_events": 313,
-    "oof_fold_assignment": {
-      "path": "inchianti_oof_fold_assignment.csv",
-      "rows": 672,
-      "folds": 5,
-      "id_column": "ID",
-      "fold_column": "fold",
-      "fold_labels": [0, 1, 2, 3, 4],
-      "fold_counts": {"0": 139, "1": 135, "2": 133, "3": 133, "4": 132},
-      "age_bin_years": 10,
-      "seed": 0,
-      "source": "formal Figure 4 participant-level OOF assignment"
-    },
     "oof_component_features": [
       "dnamphenoage",
       "hrsinchphenoage",
@@ -63,11 +55,43 @@
       "systemsagemusculoskeletal",
       "dunedinpace"
     ],
-    "external_models": ["bio_metaclock", "baseline", "dnamphenoage"]
+    "external_models": [
+      "bio_metaclock",
+      "baseline",
+      "dnamphenoage"
+    ],
+    "production_oof": {
+      "config_id": "figure4-primary19-fullcpg-foldlocal-v1",
+      "path": "inchianti_primary_oof_folds.csv",
+      "rows": 672,
+      "folds": 5,
+      "fold_counts": {
+        "0": 135,
+        "1": 135,
+        "2": 134,
+        "3": 134,
+        "4": 134
+      },
+      "outer_split": "StratifiedKFold(5,shuffle=True,random_state=0); floor(age/10)*10 crossed with SEX",
+      "training_order": "numeric ID then numeric sampleID suffix",
+      "primary": "lowest numeric sampleID suffix",
+      "metric_level": "one primary sample per participant",
+      "baseline_features": 485577,
+      "baseline_selection": "all DNAm features; no feature selection",
+      "duplicate_training_participants": 628,
+      "duplicate_heldout_profiles": 88,
+      "survival_predictions": "same primary OOF scores reused by Cox and KM"
+    }
   },
   "enrichment": {
-    "models": ["chrono", "bio"],
-    "directions": ["top", "bottom"],
+    "models": [
+      "chrono",
+      "bio"
+    ],
+    "directions": [
+      "top",
+      "bottom"
+    ],
     "libraries": [
       "go_bp",
       "kegg_2021_human",
@@ -76,7 +100,11 @@
     ],
     "top_n": 1000,
     "union_cpgs": 896980,
-    "platform_counts": {"in_27k": 27574, "in_450k": 482421, "in_epic": 862927},
+    "platform_counts": {
+      "in_27k": 27574,
+      "in_450k": 482421,
+      "in_epic": 862927
+    },
     "rGREAT_version": "2.8.0",
     "genome": "hg19/GRCh37",
     "min_gene_set_size": 5,
@@ -165,6 +193,9 @@
       "systemsagemetabolic",
       "systemsagemusculoskeletal"
     ],
-    "biological_non_affine_components": ["systemsage", "dunedinpace"]
+    "biological_non_affine_components": [
+      "systemsage",
+      "dunedinpace"
+    ]
   }
 }

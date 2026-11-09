@@ -22,7 +22,9 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 from sklearn.exceptions import ConvergenceWarning
-from sklearn.linear_model import ElasticNet, ElasticNetCV
+from sklearn.impute import SimpleImputer
+from sklearn.linear_model import ElasticNet, LinearRegression
+from sklearn.model_selection import GridSearchCV
 from sklearn.metrics import mean_absolute_error
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
@@ -32,6 +34,9 @@ from repository_paths import ensure_repo_path, relative_path
 
 from .species_config import (
     DISPLAY_NAMES,
+    COMPONENT_ORDER,
+    LOO_CONFIG_ID,
+    INPUT_CONFIG_ID,
     GENERALIZATION_CONFIG_ID as CONFIG_ID,
     POOLED_COMPONENT,
     SPECIES,
@@ -107,6 +112,8 @@ def load_model_inputs(
     if name not in SPECIES:
         raise ValueError(f"Species must be one of {SPECIES}; found {name!r}")
     raw = read_table(direct_input_path(name))
+    if raw.attrs.get("input_config_id") != INPUT_CONFIG_ID:
+        raise ValueError("Species inputs use an outdated configuration; prepare them again")
     loo_path = loo_feature_path(name)
     if not loo_path.is_file():
         raise FileNotFoundError(
@@ -116,6 +123,8 @@ def load_model_inputs(
     loo = read_table(loo_path)
     if loo.attrs.get("component_config_id") != COMPONENT_CONFIG_ID:
         raise ValueError("LOO features use an outdated component configuration; rebuild them")
+    if loo.attrs.get("loo_config_id") != LOO_CONFIG_ID:
+        raise ValueError("LOO features use an outdated feature order; rebuild them")
     if not raw.index.equals(loo.index):
         raise ValueError(f"Direct and LOO sample IDs differ for {name}")
     ages = pd.to_numeric(raw[TARGET], errors="coerce")
@@ -127,15 +136,17 @@ def load_model_inputs(
         raise ValueError("At least 25 valid age-labelled samples are required")
     cpg_columns = [str(column) for column in raw if str(column).startswith("cg")]
     component_columns = [
-        *(f"{species}_elasticnetcv" for species in SPECIES if species != name),
+        *(f"{species}_elasticnetcv" for species in COMPONENT_ORDER if species != name),
         f"{POOLED_COMPONENT}_elasticnetcv",
     ]
     evolution_columns = [
-        f"{species}_elasticnetcv" for species in SPECIES if species != name
+        f"{species}_elasticnetcv" for species in COMPONENT_ORDER if species != name
     ]
     missing = sorted(set([*component_columns, *evolution_columns]) - set(loo.columns))
     if missing:
         raise ValueError(f"LOO feature table is missing columns: {missing}")
+    if [column for column in loo if column != TARGET] != component_columns:
+        raise ValueError("LOO component order differs from the configured order; rebuild them")
     direct = numeric_features(raw, cpg_columns, "Direct CpG matrix")
     meta = numeric_features(loo, component_columns, "ENCV component matrix")
     evolution = numeric_features(loo, evolution_columns, "ENCV evolution component matrix")
@@ -148,7 +159,7 @@ def load_model_inputs(
 def split_and_impute(
     direct: pd.DataFrame, meta: pd.DataFrame
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    """Apply the formal fixed 80/20 split and training-aware zero imputation."""
+    """Apply the fixed 80/20 split and remove empty training CpG columns."""
     order = direct.sample(frac=1.0, random_state=SPLIT_SEED).index
     boundary = int(len(order) * TRAIN_FRACTION)
 
@@ -161,8 +172,6 @@ def split_and_impute(
         if empty and not allow_empty_drop:
             raise ValueError(f"Component columns are entirely missing in training: {empty}")
         features = [column for column in features if column not in empty]
-        train.loc[:, features] = train[features].fillna(0.0)
-        test.loc[:, features] = test[features].fillna(0.0)
         return train.loc[:, [*features, TARGET]], test.loc[:, [*features, TARGET]]
 
     direct_train, direct_test = prepare(direct, allow_empty_drop=True)
@@ -189,24 +198,22 @@ def training_sizes(n_train: int) -> np.ndarray:
 ############################ MODEL FITTING ###################################
 
 
-def elastic_net() -> Pipeline:
-    """Build the formal scaled five-fold ElasticNetCV estimator."""
-    return Pipeline(
-        [
+def elastic_net() -> GridSearchCV:
+    """Select alpha with scaling fitted separately within each training fold."""
+    return GridSearchCV(
+        Pipeline([
+            ("imputer", SimpleImputer(strategy="median", keep_empty_features=True)),
             ("scaler", StandardScaler()),
-            (
-                "model",
-                ElasticNetCV(
-                    alphas=ALPHAS,
-                    cv=CV_FOLDS,
-                    l1_ratio=L1_RATIO,
-                    max_iter=MAX_ITER,
-                    n_jobs=-1,
-                    selection="cyclic",
-                    tol=TOLERANCE,
-                ),
-            ),
-        ]
+            ("model", ElasticNet(
+                l1_ratio=L1_RATIO, max_iter=MAX_ITER,
+                selection="cyclic", tol=TOLERANCE,
+            )),
+        ]),
+        {"model__alpha": ALPHAS},
+        cv=CV_FOLDS,
+        scoring="neg_mean_squared_error",
+        n_jobs=int(os.environ.get("SLURM_CPUS_PER_TASK", "1")),
+        error_score="raise",
     )
 
 
@@ -214,6 +221,7 @@ def linear_svr() -> Pipeline:
     """Build the formal scaled linear-SVR estimator."""
     return Pipeline(
         [
+            ("imputer", SimpleImputer(strategy="constant", fill_value=0.0, keep_empty_features=True)),
             ("scaler", StandardScaler()),
             (
                 "model",
@@ -249,14 +257,16 @@ def fit_model(
         "n_iter": 0,
         "nonzero_coefficients": 0,
         "support_vectors": 0,
-        "convergence_warnings": sum(
-            issubclass(item.category, ConvergenceWarning) for item in caught
+        "convergence_warnings": (
+            np.nan if isinstance(estimator, GridSearchCV) and estimator.n_jobs != 1
+            else sum(issubclass(item.category, ConvergenceWarning) for item in caught)
         ),
     }
-    model = estimator.named_steps["model"]
+    fitted = estimator.best_estimator_ if isinstance(estimator, GridSearchCV) else estimator
+    model = fitted.named_steps["model"]
     if label in {"EN", "Meta EN"}:
         record.update(
-            selected_alpha=float(model.alpha_),
+            selected_alpha=float(model.alpha),
             n_iter=int(model.n_iter_),
             nonzero_coefficients=int(np.count_nonzero(model.coef_)),
         )
@@ -323,14 +333,7 @@ def write_evolution_coefficients(
             ("scaler", StandardScaler()),
             (
                 "model",
-                ElasticNet(
-                    alpha=0.001,
-                    l1_ratio=0.5,
-                    max_iter=1_000,
-                    positive=True,
-                    selection="cyclic",
-                    tol=1e-4,
-                ),
+                LinearRegression(positive=True),
             ),
         ]
     )
@@ -338,7 +341,7 @@ def write_evolution_coefficients(
         warnings.simplefilter("always", ConvergenceWarning)
         estimator.fit(complete[features], complete[TARGET])
     if any(issubclass(item.category, ConvergenceWarning) for item in caught):
-        raise RuntimeError("Evolution component Elastic Net did not converge")
+        raise RuntimeError("Evolution component regression did not converge")
     coefficients = pd.DataFrame(
         {
             "test_species": species,
@@ -350,7 +353,7 @@ def write_evolution_coefficients(
         raise RuntimeError("Expected nine unique directed evolution coefficients")
     output.parent.mkdir(parents=True, exist_ok=True)
     temporary = output.with_name(f".{output.name}.tmp")
-    coefficients.to_csv(temporary, sep="\t", index=False, float_format="%.10g")
+    coefficients.to_csv(temporary, sep="\t", index=False, float_format="%.17g")
     os.replace(temporary, output)
     return output
 
@@ -463,16 +466,22 @@ def main() -> int:
                 "seed_formula": "42 + repeat_id + training_size * 1000",
             },
             "elastic_net_cv": {
-                "pipeline": ["StandardScaler", "ElasticNetCV"],
+                "search": "GridSearchCV",
+                "pipeline": ["SimpleImputer", "StandardScaler", "ElasticNet"],
+                "imputer": {"strategy": "median", "keep_empty_features": True},
+                "scoring": "neg_mean_squared_error",
+                "fold_local_preprocessing": True,
+                "convergence_warning_count_scope": "all fits when serial; unavailable with process workers",
                 "cv": CV_FOLDS,
                 "alphas": ALPHAS.tolist(),
                 "l1_ratio": L1_RATIO,
                 "max_iter": MAX_ITER,
                 "tol": TOLERANCE,
-                "n_jobs": -1,
+                "n_jobs": int(os.environ.get("SLURM_CPUS_PER_TASK", "1")),
             },
             "svr": {
-                "pipeline": ["StandardScaler", "SVR"],
+                "pipeline": ["SimpleImputer", "StandardScaler", "SVR"],
+                "imputer": {"strategy": "constant", "fill_value": 0.0},
                 "kernel": "linear",
                 "C": 1.0,
                 "epsilon": 0.1,

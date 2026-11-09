@@ -11,9 +11,6 @@ from .config import (
     DNAM_FEATURE_PREFIX_COUNTS,
     DNAM_FEATURE_PREFIXES,
     INCHIANTI_DNAM_FEATURE_COUNT,
-    INCHIANTI_OOF_FOLD_ASSIGNMENT_PATH,
-    INCHIANTI_OOF_FOLDS,
-    INCHIANTI_PARTICIPANTS,
 )
 
 # PyArrow's default Thrift container limit is too small for a Parquet schema
@@ -22,7 +19,9 @@ PARQUET_THRIFT_CONTAINER_SIZE_LIMIT = 2_000_000
 PARQUET_THRIFT_STRING_SIZE_LIMIT = 2_000_000_000
 
 
-def read_analysis_dataset(path: Path, columns: list[str] | None = None) -> pd.DataFrame:
+def read_analysis_dataset(
+    path: Path, columns: list[str] | None = None, *, float_precision: str | None = None,
+) -> pd.DataFrame:
     """Read CSV or the ultra-wide canonical Parquet table with PyArrow."""
     if not path.exists():
         raise FileNotFoundError(f"Analysis-ready dataset does not exist: {path}")
@@ -34,7 +33,7 @@ def read_analysis_dataset(path: Path, columns: list[str] | None = None) -> pd.Da
             thrift_container_size_limit=PARQUET_THRIFT_CONTAINER_SIZE_LIMIT,
             thrift_string_size_limit=PARQUET_THRIFT_STRING_SIZE_LIMIT,
         )
-    return pd.read_csv(path, usecols=columns)
+    return pd.read_csv(path, usecols=columns, float_precision=float_precision)
 
 
 def complete_case_mask(values: pd.Series) -> pd.Series:
@@ -51,15 +50,15 @@ def numeric_matrix(
     columns: list[str] | tuple[str, ...],
     *,
     dtype: np.dtype | type = np.float32,
+    fill_missing: bool = True,
 ) -> np.ndarray:
-    """Build a numeric matrix using the formal zero-imputation policy."""
-    return (
+    """Build numeric inputs, optionally retaining missing values for a fitted imputer."""
+    numeric = (
         frame.loc[:, list(columns)]
         .apply(pd.to_numeric, errors="coerce")
         .replace([np.inf, -np.inf], np.nan)
-        .fillna(0.0)
-        .to_numpy(dtype)
     )
+    return (numeric.fillna(0.0) if fill_missing else numeric).to_numpy(dtype)
 
 
 def dnam_feature_columns(
@@ -108,22 +107,6 @@ def validate_dnam_feature_names(
     return features
 
 
-def select_one_sample_per_participant(frame: pd.DataFrame) -> pd.DataFrame:
-    """Select the lowest numeric sample-ID suffix for every participant."""
-    selected = frame.copy()
-    suffix = pd.to_numeric(
-        selected["sampleID"].astype(str).str.extract(r"(\d+)$", expand=False),
-        errors="coerce",
-    )
-    selected["_sample_suffix"] = suffix.fillna(np.inf)
-    return (
-        selected.sort_values(["ID", "_sample_suffix", "sampleID"], kind="mergesort")
-        .drop_duplicates("ID", keep="first")
-        .drop(columns="_sample_suffix")
-        .reset_index(drop=True)
-    )
-
-
 def _canonical_participant_ids(values: pd.Series) -> pd.Series:
     """Normalize numeric donor IDs so values such as 1 and 1.0 match."""
     text = values.astype("string").str.strip()
@@ -135,40 +118,16 @@ def _canonical_participant_ids(values: pd.Series) -> pd.Series:
     return text
 
 
-def fixed_figure4_oof_folds(
-    frame: pd.DataFrame,
-    path: Path = INCHIANTI_OOF_FOLD_ASSIGNMENT_PATH,
-) -> np.ndarray:
-    """Map every sample to the versioned donor-level Figure 4 OOF assignment."""
-    assignment = pd.read_csv(path, dtype={"ID": "string"})
-    if set(assignment.columns) != {"ID", "fold"}:
-        raise ValueError("Figure 4 OOF fold assignment must contain exactly ID and fold.")
-    assignment["ID"] = _canonical_participant_ids(assignment["ID"])
-    assignment["fold"] = pd.to_numeric(assignment["fold"], errors="raise")
-    if (
-        len(assignment) != INCHIANTI_PARTICIPANTS
-        or assignment["ID"].nunique() != INCHIANTI_PARTICIPANTS
-        or assignment["ID"].duplicated().any()
-    ):
-        raise ValueError(
-            f"Figure 4 OOF fold assignment must contain {INCHIANTI_PARTICIPANTS} unique IDs."
-        )
-    if not assignment["fold"].isin(range(INCHIANTI_OOF_FOLDS)).all():
-        raise ValueError(
-            f"Figure 4 OOF folds must be integers from 0 to {INCHIANTI_OOF_FOLDS - 1}."
-        )
-    assignment["fold"] = assignment["fold"].astype(int)
-
-    frame_ids = _canonical_participant_ids(frame["ID"])
-    observed_ids = set(frame_ids)
-    expected_ids = set(assignment["ID"])
-    if observed_ids != expected_ids:
-        raise ValueError(
-            "Input donors do not match the fixed Figure 4 OOF assignment; "
-            f"missing={len(expected_ids - observed_ids)}, extra={len(observed_ids - expected_ids)}."
-        )
-    fold_by_id = assignment.set_index("ID")["fold"]
-    folds = frame_ids.map(fold_by_id).to_numpy(dtype=int)
-    if frame.assign(_fixed_fold=folds).groupby("ID")["_fixed_fold"].nunique().max() != 1:
-        raise RuntimeError("A donor was mapped to more than one fixed Figure 4 OOF fold.")
-    return folds
+def sort_figure4_samples(frame: pd.DataFrame) -> pd.DataFrame:
+    """Order samples by numeric participant ID and numeric sample suffix."""
+    ordered = frame.copy()
+    ordered["ID"] = _canonical_participant_ids(ordered["ID"])
+    ordered["sampleID"] = ordered["sampleID"].astype(str)
+    ordered["_numeric_id"] = pd.to_numeric(ordered["ID"], errors="raise")
+    ordered["_numeric_suffix"] = pd.to_numeric(
+        ordered["sampleID"].str.extract(r"(\d+)$", expand=False), errors="raise"
+    )
+    if ordered[["_numeric_id", "_numeric_suffix"]].isna().any().any():
+        raise ValueError("Figure 4 requires numeric participant IDs and sample suffixes.")
+    return (ordered.sort_values(["_numeric_id", "_numeric_suffix", "sampleID"], kind="mergesort")
+            .drop(columns=["_numeric_id", "_numeric_suffix"]).reset_index(drop=True))

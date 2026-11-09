@@ -99,7 +99,7 @@ def fit(
     n_jobs
         Worker count forwarded to regressors that support parallel execution.
     model_params
-        Overrides passed directly to the final regression estimator.
+        Overrides for the regression estimator and its alpha/CV search.
 
     Returns
     -------

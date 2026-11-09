@@ -11,28 +11,35 @@ import numpy as np
 import pandas as pd
 import sklearn
 from sklearn.impute import SimpleImputer
-from sklearn.linear_model import ElasticNetCV
+from sklearn.linear_model import ElasticNet
+from sklearn.model_selection import GridSearchCV
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
 from repository_paths import relative_path
 
-from .species_config import direct_input_path, model_dir
+from .species_config import INPUT_CONFIG_ID, direct_input_path, model_dir
 
 TARGET = "age"
 SEED = 105
-COMPONENT_ALPHAS = np.logspace(0.0, -5.0, 100)
+COMPONENT_ALPHAS = np.logspace(0.0, -5.0, 30)
 CV_FOLDS = 5
-MAX_ITER = 10_000
-COMPONENT_CONFIG_ID = "species-encv-v1-alpha1-1e-5-100-cv5-default-l1"
+MAX_ITER = 20_000
+COMPONENT_CONFIG_ID = "species-dogtop10-fold-local-encv30-cv5-maxiter20000-v1"
 ENCV_ARCHITECTURE = {
     "config_id": COMPONENT_CONFIG_ID,
     "model_type": "elasticnetcv",
-    "pipeline": ["SimpleImputer", "StandardScaler", "ElasticNetCV"],
+    "search": "GridSearchCV",
+    "pipeline": ["SimpleImputer", "StandardScaler", "ElasticNet"],
+    "scoring": "neg_mean_squared_error",
+    "fold_local_preprocessing": True,
+    "keep_empty_features": True,
     "imputer_strategy": "median",
     "alphas": COMPONENT_ALPHAS.tolist(),
     "cv_folds": CV_FOLDS,
-    "l1_ratio": float(ElasticNetCV().l1_ratio),
+    "l1_ratio": 0.5,
+    "tol": 1e-4,
+    "selection": "cyclic",
     "max_iter": MAX_ITER,
     "seed": SEED,
 }
@@ -42,22 +49,20 @@ def train_elasticnetcv(source: str, *, n_jobs: int) -> Path:
     """Train one species or pooled ENCV clock and save its complete pipeline."""
     input_path = direct_input_path(source)
     frame = pd.read_parquet(input_path).dropna(subset=[TARGET])
+    if frame.attrs.get("input_config_id") != INPUT_CONFIG_ID:
+        raise ValueError("Species inputs use an outdated configuration; prepare them again")
     features = [str(column) for column in frame if str(column).lower().startswith("cg")]
-    model = Pipeline(
-        [
-            ("imputer", SimpleImputer(strategy="median")),
+    model = GridSearchCV(
+        Pipeline([
+            ("imputer", SimpleImputer(strategy="median", keep_empty_features=True)),
             ("scaler", StandardScaler()),
-            (
-                "model",
-                ElasticNetCV(
-                    cv=CV_FOLDS,
-                    alphas=COMPONENT_ALPHAS,
-                    max_iter=MAX_ITER,
-                    random_state=SEED,
-                    n_jobs=n_jobs,
-                ),
-            ),
-        ]
+            ("model", ElasticNet(l1_ratio=0.5, max_iter=MAX_ITER, random_state=SEED)),
+        ]),
+        {"model__alpha": COMPONENT_ALPHAS},
+        cv=CV_FOLDS,
+        scoring="neg_mean_squared_error",
+        n_jobs=n_jobs,
+        error_score="raise",
     )
     model.fit(frame[features], frame[TARGET].to_numpy(dtype=float))
     output = model_dir("elasticnetcv", source)
@@ -66,7 +71,7 @@ def train_elasticnetcv(source: str, *, n_jobs: int) -> Path:
         {"features": features, "model": model, "config_id": COMPONENT_CONFIG_ID},
         output / "model.joblib",
     )
-    fitted = model.named_steps["model"]
+    fitted = model.best_estimator_.named_steps["model"]
     (output / "training_summary.json").write_text(
         json.dumps(
             {
@@ -75,10 +80,12 @@ def train_elasticnetcv(source: str, *, n_jobs: int) -> Path:
                 "input_path": relative_path(input_path),
                 "samples": len(frame),
                 "features": len(features),
-                "selected_alpha": float(fitted.alpha_),
-                "alpha_candidates": len(fitted.alphas_),
-                "l1_ratio": float(fitted.l1_ratio_),
+                "selected_alpha": float(fitted.alpha),
+                "alpha_candidates": len(COMPONENT_ALPHAS),
+                "l1_ratio": float(fitted.l1_ratio),
                 "n_jobs": n_jobs,
+                "refit_n_iter": int(fitted.n_iter_),
+                "refit_dual_gap": float(fitted.dual_gap_),
                 "runtime": {
                     "python": platform.python_version(),
                     "platform": platform.platform(),

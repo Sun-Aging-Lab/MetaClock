@@ -17,7 +17,7 @@ LOO_ROOT = SUBMODEL_ROOT / "loo_features"
 
 SPECIES = (
     "BosTaurus",
-    "DelphinapterusLeucas",
+    "CanisLupusFamiliaris",
     "EquusCaballus",
     "HeterocephalusGlaber",
     "HomoSapiens",
@@ -27,9 +27,21 @@ SPECIES = (
     "PapioHamadryas",
     "RattusNorvegicus",
 )
+COMPONENT_ORDER = (
+    "MusMusculus",
+    "HomoSapiens",
+    "CanisLupusFamiliaris",
+    "RattusNorvegicus",
+    "BosTaurus",
+    "OvisAries",
+    "HeterocephalusGlaber",
+    "EquusCaballus",
+    "PapioHamadryas",
+    "MacacaMulatta",
+)
 DISPLAY_NAMES = {
     "BosTaurus": "Bos taurus",
-    "DelphinapterusLeucas": "Delphinapterus leucas",
+    "CanisLupusFamiliaris": "Canis lupus familiaris",
     "EquusCaballus": "Equus caballus",
     "HeterocephalusGlaber": "Heterocephalus glaber",
     "HomoSapiens": "Homo sapiens",
@@ -42,7 +54,7 @@ DISPLAY_NAMES = {
 LATIN_TO_MODEL = {value: key for key, value in DISPLAY_NAMES.items()}
 EXPECTED_SAMPLE_COUNTS = {
     "BosTaurus": 455,
-    "DelphinapterusLeucas": 206,
+    "CanisLupusFamiliaris": 742,
     "EquusCaballus": 350,
     "HeterocephalusGlaber": 411,
     "HomoSapiens": 1126,
@@ -53,10 +65,10 @@ EXPECTED_SAMPLE_COUNTS = {
     "RattusNorvegicus": 601,
 }
 POOLED_COMPONENT = "alltissueconcat"
-GENERALIZATION_CONFIG_ID = (
-    "generalization-v5-gse223748-submodels-split105-30x50-pandas-sample-scaled-encv5-"
-    "scaled-svr-strict-encv100-loo"
-)
+INPUT_CONFIG_ID = "species-dogtop10-gestation-mixed-precision-v1"
+LOO_CONFIG_ID = "species-dogtop10-ordered-loo-v1"
+GENERALIZATION_CONFIG_ID = "species-dogtop10-fold-local-encv30-svr-ols-v2"
+
 
 
 def direct_input_path(species: str) -> Path:
