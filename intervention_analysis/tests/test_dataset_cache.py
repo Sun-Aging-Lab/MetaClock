@@ -20,7 +20,7 @@ REPOSITORY = Path(__file__).resolve().parents[2]
 if str(REPOSITORY) not in sys.path:
     sys.path.insert(0, str(REPOSITORY))
 
-from intervention_analysis import run_biometaclock_intervention_analysis as runner
+from intervention_analysis import run_external_candidate_screen as runner
 from intervention_analysis.run_geo_biometaclock_gse import summarize_comparisons
 
 
@@ -229,8 +229,7 @@ class GeoSummarySignatureRegressionTests(unittest.TestCase):
                     "chronological_age": float(60 + donor_index),
                     "predicted_bioage": float(value),
                     "analysis_predicted_age": float(value),
-                    # Different values ensure this legacy bookkeeping field is
-                    # not accidentally retained as a statistical grouping key.
+                    # The two samples must still group together by donor.
                     "sample_signature_id": f"signature_{donor_index}_{group}",
                 })
         with_signature = pd.DataFrame(rows)

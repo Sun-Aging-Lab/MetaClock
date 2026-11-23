@@ -7,29 +7,25 @@ import json
 import os
 import platform
 import tempfile
-import warnings
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Sequence
 
 import numpy as np
 import pandas as pd
-from joblib import effective_n_jobs
-from sklearn.exceptions import ConvergenceWarning
-from sklearn.impute import SimpleImputer
-from sklearn.linear_model import ElasticNet
-from sklearn.model_selection import GridSearchCV
+import pyarrow as pa
+import pyarrow.parquet as pq
 from sklearn.metrics import mean_absolute_error
-from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import StandardScaler
-from sklearn.svm import SVR
 
 from repository_paths import ensure_repo_path, relative_path
 
+from .estimators import ElasticNetConfig, GeneralizationConfig, fit_model
+from .geo_data import THRIFT_CONTAINER_LIMIT, THRIFT_STRING_LIMIT
+
 TARGET = "age"
 MODEL_NAMES = ("EN", "Meta EN", "SVM", "Meta SVM", "Mean")
-CONFIG_ID = "generalization-v5-split105-30x50-fold-local-median-encv5-linear-svr"
+CONFIG_ID = "generalization-v6-fold-mi1000-encv5-svrcv3"
 RESULT_COLUMNS = (
     "model",
     "training_size",
@@ -38,42 +34,16 @@ RESULT_COLUMNS = (
     "mae",
     "prediction_sd",
     "selected_alpha",
+    "best_cv_mse",
+    "selected_C",
+    "selected_epsilon",
+    "best_cv_mae",
+    "c_search_best_cv_mae",
     "n_iter",
     "nonzero_coefficients",
     "support_vectors",
     "convergence_warnings",
 )
-
-
-@dataclass(frozen=True)
-class ElasticNetConfig:
-    """Elastic-net search space and solver settings."""
-
-    cv_folds: int = 5
-    alphas: tuple[float, ...] = field(
-        default_factory=lambda: tuple(float(x) for x in np.logspace(0.0, -5.0, 30))
-    )
-    l1_ratio: float = 0.5
-    max_iter: int = 20_000
-    tolerance: float = 1e-4
-    n_jobs: int = -1
-
-
-@dataclass(frozen=True)
-class GeneralizationConfig:
-    """Split, resampling, and estimator settings for one generalization run."""
-
-    split_seed: int = 105
-    repeat_seed: int = 42
-    train_fraction: float = 0.8
-    test_reserve: int = 10
-    n_training_sizes: int = 30
-    n_resamples: int = 50
-    elastic_net: ElasticNetConfig = field(default_factory=ElasticNetConfig)
-    svr_c: float = 1.0
-    svr_epsilon: float = 0.1
-    svr_tolerance: float = 1e-3
-    svr_max_iter: int = -1
 
 
 @dataclass(frozen=True)
@@ -122,10 +92,14 @@ def _numeric_frame(frame: pd.DataFrame, columns: Sequence[str], label: str) -> p
     return result
 
 
-def load_aligned_inputs(spec: DatasetSpec) -> tuple[pd.DataFrame, pd.DataFrame]:
+def load_aligned_inputs(
+    spec: DatasetSpec, *, matrix_path: Path | None = None,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Load the separately prepared direct and component inputs."""
     direct_path, meta_path = project_path(spec.direct_path), project_path(spec.meta_path)
-    direct_raw = pd.read_parquet(direct_path)
+    parquet = pq.ParquetFile(direct_path, thrift_container_size_limit=THRIFT_CONTAINER_LIMIT,
+                             thrift_string_size_limit=THRIFT_STRING_LIMIT)
+    direct_raw = parquet.read(columns=[TARGET], use_pandas_metadata=True).to_pandas()
     meta_raw = pd.read_parquet(meta_path)
     direct_raw.index = direct_raw.index.astype(str)
     meta_raw.index = meta_raw.index.astype(str)
@@ -137,16 +111,34 @@ def load_aligned_inputs(spec: DatasetSpec) -> tuple[pd.DataFrame, pd.DataFrame]:
     meta_age = pd.to_numeric(meta_raw[TARGET], errors="raise").to_numpy(dtype=float)
     if not np.isfinite(direct_age).all() or not np.allclose(direct_age, meta_age):
         raise ValueError(f"{spec.name}: direct/component ages are invalid or differ")
-    cpgs = [str(column) for column in direct_raw if str(column).startswith("cg")]
-    if not cpgs:
-        raise ValueError(f"{spec.name}: no CpG features")
+    cpgs = [f.name for f in parquet.schema_arrow if f.name.startswith("cg")
+            and (pa.types.is_floating(f.type) or pa.types.is_integer(f.type))]
+    if not cpgs or len(set(cpgs)) != len(cpgs):
+        raise ValueError(f"{spec.name}: expected unique numeric CpG columns")
     observed = tuple(str(column) for column in meta_raw if column != TARGET)
     if observed != spec.expected_meta_columns:
         raise ValueError(
             f"{spec.name}: expected component columns {spec.expected_meta_columns}, "
             f"found {observed}"
         )
-    direct = _numeric_frame(direct_raw, cpgs, f"{spec.name} direct")
+    shape = (len(direct_raw), len(cpgs))
+    if matrix_path is None:
+        matrix = np.empty(shape, dtype=np.float32)
+    else:
+        matrix = np.lib.format.open_memmap(matrix_path, mode="w+", dtype=np.float32, shape=shape)
+    for start in range(0, len(cpgs), 4096):
+        names = cpgs[start:start + 4096]
+        block = parquet.read(columns=names)
+        for offset, column in enumerate(block.columns):
+            matrix[:, start + offset] = column.to_numpy(zero_copy_only=False)
+        if np.isinf(matrix[:, start:start + len(names)]).any():
+            raise ValueError(f"{spec.name}: infinite CpG values")
+    if matrix_path is None:
+        direct = pd.DataFrame(matrix, columns=cpgs, index=direct_raw.index)
+    else:
+        matrix.flush()
+        direct = pd.DataFrame({"row": np.arange(len(matrix))}, index=direct_raw.index)
+    direct.attrs["cpg_count"] = len(cpgs)
     meta = _numeric_frame(meta_raw, spec.expected_meta_columns, f"{spec.name} component")
     direct[TARGET] = direct_age
     meta[TARGET] = direct_age
@@ -157,8 +149,8 @@ def split_and_impute(
     direct: pd.DataFrame, meta: pd.DataFrame, config: GeneralizationConfig,
     *, impute: bool = True,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    """Apply the fixed split, optionally filling missing values for fixed SVR."""
-    order = direct.sample(frac=1.0, random_state=config.split_seed).index
+    """Apply the fixed split and optionally fill missing feature values with zero."""
+    order = direct.index.to_series().sample(frac=1.0, random_state=config.split_seed).index
     boundary = int(len(order) * config.train_fraction)
 
     def prepare(frame: pd.DataFrame, *, allow_drop: bool) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -180,87 +172,6 @@ def split_and_impute(
     return direct_train, direct_test, meta_train, meta_test
 
 
-def _elastic_net(config: GeneralizationConfig) -> GridSearchCV:
-    settings = config.elastic_net
-    pipeline = Pipeline(
-        [
-            ("imputer", SimpleImputer(strategy="median", keep_empty_features=True)),
-            ("scaler", StandardScaler()),
-            ("model", ElasticNet(
-                l1_ratio=settings.l1_ratio,
-                max_iter=settings.max_iter,
-                selection="cyclic",
-                tol=settings.tolerance,
-            )),
-        ]
-    )
-    return GridSearchCV(
-        pipeline,
-        {"model__alpha": np.asarray(settings.alphas)},
-        cv=settings.cv_folds,
-        scoring="neg_mean_squared_error",
-        n_jobs=settings.n_jobs,
-        refit=True,
-        error_score="raise",
-    )
-
-
-def _linear_svr(config: GeneralizationConfig) -> Pipeline:
-    return Pipeline(
-        [
-            ("scaler", StandardScaler()),
-            (
-                "model",
-                SVR(
-                    kernel="linear",
-                    C=config.svr_c,
-                    epsilon=config.svr_epsilon,
-                    tol=config.svr_tolerance,
-                    shrinking=True,
-                    max_iter=config.svr_max_iter,
-                ),
-            ),
-        ]
-    )
-
-
-def _fit_model(
-    label: str, train: pd.DataFrame, test: pd.DataFrame, config: GeneralizationConfig
-) -> dict[str, object]:
-    estimator = _elastic_net(config) if label in {"EN", "Meta EN"} else _linear_svr(config)
-    if label not in {"EN", "Meta EN"}:
-        train, test = train.fillna(0.0), test.fillna(0.0)
-    with warnings.catch_warnings(record=True) as caught:
-        warnings.simplefilter("always", ConvergenceWarning)
-        estimator.fit(train.drop(columns=TARGET), train[TARGET])
-    prediction = np.asarray(estimator.predict(test.drop(columns=TARGET)), dtype=float)
-    record: dict[str, object] = {
-        "model": label,
-        "mae": float(mean_absolute_error(test[TARGET], prediction)),
-        "prediction_sd": float(np.std(prediction, ddof=1)) if len(prediction) > 1 else 0.0,
-        "selected_alpha": np.nan,
-        "n_iter": 0,
-        "nonzero_coefficients": 0,
-        "support_vectors": 0,
-        "convergence_warnings": sum(
-            issubclass(item.category, ConvergenceWarning) for item in caught
-        ),
-    }
-    pipeline = estimator.best_estimator_ if isinstance(estimator, GridSearchCV) else estimator
-    fitted = pipeline.named_steps["model"]
-    if label in {"EN", "Meta EN"} and effective_n_jobs(config.elastic_net.n_jobs) != 1:
-        record["convergence_warnings"] = None
-    if label in {"EN", "Meta EN"}:
-        record.update(
-            selected_alpha=float(fitted.alpha),
-            n_iter=int(fitted.n_iter_),
-            nonzero_coefficients=int(np.count_nonzero(fitted.coef_)),
-        )
-    else:
-        record["support_vectors"] = int(len(fitted.support_))
-    return record
-
-
 def validate_result(
     frame: pd.DataFrame, size: int, size_index: int, config: GeneralizationConfig
 ) -> None:
@@ -276,6 +187,16 @@ def validate_result(
         raise ValueError("Shard has the wrong training-size identity")
     if not np.isfinite(frame[["mae", "prediction_sd"]].to_numpy(float)).all():
         raise ValueError("Shard contains non-finite metrics")
+    en = frame[frame["model"].isin(["EN", "Meta EN"])]
+    if (not np.isfinite(en["best_cv_mse"]).all() or (en["best_cv_mse"] < 0).any()
+            or not en["selected_alpha"].isin(config.elastic_net.alphas).all()):
+        raise ValueError("Shard contains invalid Elastic Net search results")
+    svr = frame[frame["model"].isin(["SVM", "Meta SVM"])]
+    scores = svr[["best_cv_mae", "c_search_best_cv_mae", "support_vectors"]].to_numpy(float)
+    if (not np.isfinite(scores).all() or (scores < 0).any()
+            or not svr["selected_C"].isin(config.svr_c_values).all()
+            or not svr["selected_epsilon"].isin(config.svr_epsilon_values).all()):
+        raise ValueError("Shard contains invalid SVR search results")
 
 
 def atomic_write_parquet(frame: pd.DataFrame, output: Path, *, index: bool = False) -> None:
@@ -308,7 +229,7 @@ def atomic_write_json(payload: dict[str, Any], output: Path) -> None:
 def _versions() -> dict[str, str]:
     return {
         name: importlib.metadata.version(name)
-        for name in ("numpy", "pandas", "pyarrow", "scikit-learn")
+        for name in ("numpy", "pandas", "pyarrow", "scipy", "joblib", "scikit-learn")
     }
 
 
@@ -321,7 +242,15 @@ def evaluate_training_size(
 ) -> Path:
     """Fit and test all five models for one configured training-size point."""
     config = config or GeneralizationConfig()
-    direct, meta = load_aligned_inputs(spec)
+    with tempfile.TemporaryDirectory(dir=os.environ.get("SLURM_TMPDIR")) as directory:
+        return _evaluate_size(spec, size_index, output_root, config, Path(directory) / "cpgs.npy")
+
+
+def _evaluate_size(
+    spec: DatasetSpec, size_index: int, output_root: Path, config: GeneralizationConfig,
+    matrix_path: Path,
+) -> Path:
+    direct, meta = load_aligned_inputs(spec, matrix_path=matrix_path)
     direct_train, direct_test, meta_train, meta_test = split_and_impute(direct, meta, config, impute=False)
     sizes = log_spaced_training_sizes(len(direct_train), config)
     if not 0 <= size_index < config.n_training_sizes:
@@ -331,32 +260,32 @@ def evaluate_training_size(
     provenance_path = output.with_suffix(".provenance.json")
     direct_path, meta_path = project_path(spec.direct_path), project_path(spec.meta_path)
     if output.is_file() and provenance_path.is_file():
-        existing = pd.read_parquet(output)
         provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
-        validate_result(existing, size, size_index, config)
-        cache_matches = (
-            provenance.get("config_id") == CONFIG_ID
-            and provenance.get("config") == config_record(config)
-            and provenance.get("direct_input") == relative_path(direct_path)
-            and provenance.get("meta_input") == relative_path(meta_path)
-        )
-        if not cache_matches:
-            raise ValueError(
-                f"Existing shard configuration or prepared-input paths differ: {output}"
-            )
-        return output
+        if provenance.get("config_id") == CONFIG_ID:
+            existing = pd.read_parquet(output)
+            validate_result(existing, size, size_index, config)
+            if (provenance.get("config") != config_record(config)
+                    or provenance.get("direct_input") != relative_path(direct_path)
+                    or provenance.get("meta_input") != relative_path(meta_path)):
+                raise ValueError(f"Existing shard configuration or input paths differ: {output}")
+            return output
+        if (provenance.get("config_id") != "generalization-v5-split105-30x50-fold-local-median-encv5-linear-svr"
+                or provenance.get("dataset") != spec.name
+                or provenance.get("meta_input") != relative_path(meta_path)):
+            raise ValueError(f"Existing shard belongs to another configuration: {output}")
 
     rows: list[dict[str, object]] = []
     for repeat in range(config.n_resamples):
         seed = config.repeat_seed + repeat + size * 1000
-        ids = direct_train.sample(n=size, replace=False, random_state=seed).index
+        ids = direct_train.index.to_series().sample(n=size, replace=False, random_state=seed).index
         for label, train, test in (
             ("EN", direct_train.loc[ids], direct_test),
             ("Meta EN", meta_train.loc[ids], meta_test),
             ("SVM", direct_train.loc[ids], direct_test),
             ("Meta SVM", meta_train.loc[ids], meta_test),
         ):
-            record = _fit_model(label, train, test, config)
+            record = fit_model(label, train, test, config, domain=spec.domain,
+                               matrix_path=matrix_path if label in ("EN", "SVM") else None)
             record.update(training_size=size, size_index=size_index, repeat_id=repeat)
             rows.append(record)
         mean_prediction = np.repeat(direct_train.loc[ids, TARGET].mean(), len(direct_test))
@@ -387,7 +316,7 @@ def evaluate_training_size(
         "meta_input": relative_path(meta_path),
         "training_pool_samples": len(direct_train),
         "test_samples": len(direct_test),
-        "direct_features": direct_train.shape[1] - 1,
+        "direct_features": direct.attrs["cpg_count"],
         "meta_features": list(spec.expected_meta_columns),
         "training_sizes": sizes.astype(int).tolist(),
         "size_index": size_index,

@@ -1,45 +1,37 @@
 {
-  "endpoint": "INTV_MOR: 0 alive/censored; death waves 4, 5, 6",
-  "prediction_config_id": "figure4-primary19-fullcpg-foldlocal-v1",
-  "prediction_source": "shared biological_age_prediction/oof_predictions.csv",
-  "outer_folds": "primary participants; age-decade by sex; StratifiedKFold(5, shuffle=True, random_state=0)",
-  "prediction_model": "19-component MetaClock and full-CpG baseline; shared fold-local OOF predictions",
-  "training_order": "numeric participant ID, numeric sample suffix",
-  "age_sex_correction": "pooled prediction ~ 1 + age_years + female within model",
-  "tails": "deterministic bottom/top 20% within model",
-  "models": [
-    "bio_metaclock",
-    "baseline",
-    "clinical_phenoage"
-  ],
-  "bio_metaclock_components": [
-    "dnamphenoage",
-    "hrsinchphenoage",
-    "grimage",
-    "grimage2",
-    "dnamic",
-    "zhangmortality",
-    "systemsage",
-    "systemsageblood",
-    "systemsagebrain",
-    "systemsageheart",
-    "systemsagehormone",
-    "systemsageimmune",
-    "systemsageinflammation",
-    "systemsagekidney",
-    "systemsageliver",
-    "systemsagelung",
-    "systemsagemetabolic",
-    "systemsagemusculoskeletal",
-    "dunedinpace"
-  ],
-  "software": {
-    "python": "3.11.14",
-    "numpy": "2.3.5",
-    "pandas": "2.3.3",
-    "scikit-learn": "1.8.0",
-    "lifelines": "0.30.3",
-    "pyaging": "0.1.30",
-    "anndata": "0.12.0"
+  "cohorts": {
+    "fhs": {
+      "sample": "FHS Offspring exam 8",
+      "n": 2606,
+      "deaths": 929,
+      "adjustment": [
+        "age",
+        "sex",
+        "DNAm laboratory"
+      ]
+    },
+    "whi": {
+      "sample": "WHI BA23 enrollment",
+      "n": 2127,
+      "deaths": 894,
+      "adjustment": [
+        "age",
+        "race"
+      ]
+    }
+  },
+  "fit": "lifelines KaplanMeierFitter with 95% intervals and two-sided logrank_test",
+  "groups": "Lowest and highest 20% of prediction residuals within each cohort and model",
+  "time_unit": "years",
+  "analysis_date": "2026-11-12",
+  "upstream_table_sha256": {
+    "km_curves.csv": "d7be1b82651868c7c01314028dd945b6e9a6bd0642e45e469983110bbc783293",
+    "km_logrank.csv": "b651962624aa0eeedee4da39a8d43ebf34d3b33e85cb2667bea78da8f98ec18b"
+  },
+  "plot_input_sha256": {
+    "fhs_km_curve_points.csv": "5f0702c3066688916561a798025b4246bf4ed9c09376a81fa47038c45e610ef1",
+    "fhs_km_logrank_and_deaths.csv": "28c39386b0b3ccc6c34ce5b4efe5d340cfc89c3c7857f6728e647645b25a243b",
+    "whi_km_curve_points.csv": "f787484a4a9b08a480b15d3a62ae47bd326a31d226b163d16c942a8b3f5b3300",
+    "whi_km_logrank_and_deaths.csv": "74ff109e428fae3ba092c10f297ec4c7130c78a353239278292a9a48454adb07"
   }
 }

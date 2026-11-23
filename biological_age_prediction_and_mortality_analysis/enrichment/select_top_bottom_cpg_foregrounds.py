@@ -26,7 +26,8 @@ GROUP_BY_MODEL = {"chrono": "chronological", "bio": "biological"}
 def parse_args() -> argparse.Namespace:
     """Parse published selections, union membership, and output paths."""
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--selected-cpgs", type=repo_path, default=DEFAULT_SELECTIONS)
+    parser.add_argument("--selected-cpgs", type=repo_path, nargs="+", default=[DEFAULT_SELECTIONS],
+                        help="Combined foreground CSV or one selected-CpG CSV per model.")
     parser.add_argument("--membership", type=repo_path, default=DEFAULT_MEMBERSHIP)
     parser.add_argument("--output-dir", type=repo_path, default=DEFAULT_OUTPUT)
     return parser.parse_args()
@@ -91,11 +92,9 @@ def select_foregrounds(
 def main() -> int:
     """Validate the publication table and create all four GREAT foregrounds."""
     args = parse_args()
-    published = pd.read_csv(args.selected_cpgs)
-    required = {"group", "direction", "rank", "cpg", "weight"}
-    if missing := required.difference(published.columns):
-        raise KeyError(f"Published CpG table is missing columns: {sorted(missing)}")
-    published = published[list(required)].copy()
+    columns = ["group", "direction", "rank", "cpg", "weight"]
+    published = pd.concat((pd.read_csv(path, usecols=columns) for path in args.selected_cpgs),
+                          ignore_index=True)[columns]
     published["cpg"] = published["cpg"].astype(str).str.strip()
     published["rank"] = pd.to_numeric(published["rank"], errors="raise")
     published["weight"] = pd.to_numeric(published["weight"], errors="raise")
@@ -113,12 +112,13 @@ def main() -> int:
     union = pd.read_csv(args.membership)
     if len(union) != 896_980 or union["cpg"].duplicated().any():
         raise ValueError("Expected the 896,980-CpG 27K/450K/EPIC union.")
+    selection_sources = [file_record(path) for path in args.selected_cpgs]
     audits: dict[str, object] = {
         "selection_universe": "27K v1.2 + 450K v1.2 + EPIC v1.0 B4 hg19 union",
         "union_cpgs": len(union),
         "foreground_450k_restriction": False,
         "top_n_per_direction": TOP_N,
-        "published_selections": file_record(args.selected_cpgs),
+        "published_selections": selection_sources[0] if len(selection_sources) == 1 else selection_sources,
         "models": {},
     }
     for model in ENRICHMENT["models"]:

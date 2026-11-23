@@ -74,7 +74,10 @@ DNAM_FEATURE_PREFIXES = tuple(DNAM_FEATURE_PREFIX_COUNTS)
 INCHIANTI_COMPLETE_CASE_SAMPLES = int(BIOLOGICAL_ANALYSIS["inchianti_complete_case_samples"])
 INCHIANTI_PARTICIPANTS = int(BIOLOGICAL_ANALYSIS["inchianti_participants"])
 INCHIANTI_DUPLICATE_PAIRS = int(BIOLOGICAL_ANALYSIS["inchianti_duplicate_pairs"])
-INCHIANTI_COX_EVENTS = int(BIOLOGICAL_ANALYSIS["inchianti_cox_events"])
+MORTALITY_MODELS = {
+    "fhs": ("metaclock_fhs5", "baseline", "dnamphenoage"),
+    "whi": ("metaclock_full19", "baseline", "dnamphenoage"),
+}
 PRODUCTION_OOF = BIOLOGICAL_ANALYSIS["production_oof"]
 INCHIANTI_OOF_FOLDS = int(PRODUCTION_OOF["folds"])
 PRODUCTION_CONFIG_ID = str(PRODUCTION_OOF["config_id"])

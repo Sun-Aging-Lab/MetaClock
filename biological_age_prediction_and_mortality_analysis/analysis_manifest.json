@@ -12,7 +12,6 @@
     "inchianti_complete_case_samples": 716,
     "inchianti_participants": 672,
     "inchianti_duplicate_pairs": 44,
-    "inchianti_cox_events": 313,
     "oof_component_features": [
       "dnamphenoage",
       "hrsinchphenoage",
@@ -79,8 +78,7 @@
       "baseline_features": 485577,
       "baseline_selection": "all DNAm features; no feature selection",
       "duplicate_training_participants": 628,
-      "duplicate_heldout_profiles": 88,
-      "survival_predictions": "same primary OOF scores reused by Cox and KM"
+      "duplicate_heldout_profiles": 88
     }
   },
   "enrichment": {

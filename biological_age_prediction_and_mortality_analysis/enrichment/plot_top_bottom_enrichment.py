@@ -17,6 +17,8 @@ import numpy as np
 import pandas as pd
 from matplotlib.colors import to_rgba
 from matplotlib.lines import Line2D
+from matplotlib.ticker import MaxNLocator
+from scipy.stats import binom, false_discovery_control
 
 from repository_paths import PROJECT_ROOT, repo_path
 
@@ -49,6 +51,16 @@ LIBRARIES = tuple(
 )
 MODEL_LABELS = {"chrono": "Chronological MetaClock", "bio": "Biological MetaClock"}
 DIRECTION_LABELS = {"top": "Top 1,000 CpGs", "bottom": "Bottom 1,000 CpGs"}
+GO_TERM_LABELS = {
+    label.replace("\n", " "): label
+    for label in (
+        "oncogene-induced\ncell senescence",
+        "auditory receptor\ncell fate commitment",
+        "inner ear receptor\ncell fate commitment",
+        "regulation of\ngap junction assembly",
+        "regulation of interleukin-6-mediated\nsignaling pathway",
+    )
+}
 
 
 def configure_style() -> None:
@@ -117,6 +129,8 @@ def plot_pair(
     output_dir: Path,
 ) -> None:
     """Plot top and bottom foreground results for one clock/library combination."""
+    go_bp = library.key == "go_bp"
+    model_name = {"chrono": "chronological", "bio": "biological"}[model]
     tables: dict[str, pd.DataFrame] = {}
     significant: dict[str, int] = {}
     for direction in ENRICHMENT["directions"]:
@@ -127,17 +141,21 @@ def plot_pair(
         1.55,
         max(float(table["minus_log10_fdr"].max()) for table in tables.values()) + 0.22,
     )
-    max_hits = max(float(table["observed_region_hits"].max()) for table in tables.values())
+    if not go_bp:
+        max_hits = max(float(table["observed_region_hits"].max()) for table in tables.values())
     figure, axes = plt.subplots(1, 2, figsize=(150 / 25.4, 75 / 25.4), sharex=True)
-    figure.subplots_adjust(left=0.335, right=0.985, bottom=0.25, top=0.78, wspace=0.90)
+    if go_bp:
+        figure.subplots_adjust(left=47 / 150, right=146 / 150, bottom=20 / 75, top=63 / 75, wspace=1)
+    else:
+        figure.subplots_adjust(left=0.335, right=0.985, bottom=0.25, top=0.78, wspace=0.90)
+    threshold = -math.log10(FDR_THRESHOLD)
     for axis, direction in zip(axes, ENRICHMENT["directions"], strict=True):
         table = tables[direction]
-        label = DIRECTION_LABELS[direction]
         y = np.arange(len(table))
-        threshold = -math.log10(FDR_THRESHOLD)
         axis.axvspan(threshold, max_x, color="#009E73", alpha=0.07, zorder=0)
-        axis.axvline(threshold, color="#009E73", linestyle="--", linewidth=0.8, zorder=1)
-        sizes = 14 + 48 * np.sqrt(table["observed_region_hits"] / max_hits)
+        cutoff_line = axis.axvline(threshold, color="#009E73", linestyle="--", linewidth=0.8,
+                                  zorder=1, label=f"FDR = {FDR_THRESHOLD:g}")
+        sizes = 32 if go_bp else 14 + 48 * np.sqrt(table["observed_region_hits"] / max_hits)
         colors = [
             to_rgba(library.color, 0.95 if is_significant else 0.38)
             for is_significant in table["p_adjust"].lt(FDR_THRESHOLD)
@@ -151,19 +169,31 @@ def plot_pair(
             linewidth=0.2,
             zorder=3,
         )
-        axis.set_yticks(
-            y,
-            [textwrap.fill(str(term), 32, break_long_words=False) for term in table["term"]],
-        )
+        terms = table["term"].astype(str)
+        if go_bp:
+            labels = [
+                GO_TERM_LABELS.get(term)
+                or textwrap.fill(term, 24, break_long_words=False, break_on_hyphens=False)
+                for term in terms
+            ]
+        else:
+            labels = [textwrap.fill(term, 32, break_long_words=False) for term in terms]
+        axis.set_yticks(y, labels)
         axis.invert_yaxis()
         axis.set_xlim(-0.04 * max_x, max_x)
-        axis.set_xlabel("−log₁₀(BH-adjusted P)", labelpad=2.0)
-        axis.set_title(f"{label}\nFDR < 0.05: {significant[direction]}", fontweight="bold", pad=4.0)
+        if go_bp:
+            axis.xaxis.set_major_locator(MaxNLocator(nbins=4, steps=[1, 2, 5, 10]))
+            axis.set_xlabel(r"$-\log_{10}$(BH-adjusted $P$)", labelpad=2.0)
+            title = {"top": "Top 1000 CpGs", "bottom": "bottom 1000"}[direction]
+        else:
+            axis.set_xlabel("−log₁₀(BH-adjusted P)", labelpad=2.0)
+            title = f"{DIRECTION_LABELS[direction]}\nFDR < 0.05: {significant[direction]}"
+        axis.set_title(title, fontweight="bold", pad=4.0)
         axis.grid(axis="x", color="#D0D0D0", linewidth=0.35, alpha=0.75)
         axis.set_axisbelow(True)
         axis.tick_params(axis="x", pad=1.5)
         axis.tick_params(axis="y", length=0, pad=2.0)
-        if significant[direction] == 0:
+        if not go_bp and significant[direction] == 0:
             axis.text(
                 0.5,
                 -0.20,
@@ -175,13 +205,13 @@ def plot_pair(
                 color="#666666",
                 clip_on=False,
             )
-    hit_values = sorted(
-        {int(value) for table in tables.values() for value in table["observed_region_hits"]}
-    )
-    size_examples = sorted({hit_values[0], hit_values[len(hit_values) // 2], hit_values[-1]})
-    size_handles = [
-        Line2D([0], [0], color="#009E73", linestyle="--", linewidth=0.8, label="FDR = 0.05"),
-        *[
+    handles = [cutoff_line]
+    if not go_bp:
+        hit_values = sorted(
+            {int(value) for table in tables.values() for value in table["observed_region_hits"]}
+        )
+        size_examples = sorted({hit_values[0], hit_values[len(hit_values) // 2], hit_values[-1]})
+        handles.extend(
             Line2D(
                 [0],
                 [0],
@@ -194,23 +224,21 @@ def plot_pair(
                 label=f"Region hits: {value}",
             )
             for value in size_examples
-        ],
-    ]
+        )
     figure.legend(
-        handles=size_handles,
+        handles=handles,
         loc="lower center",
         bbox_to_anchor=(0.5, 0.035),
-        ncol=len(size_handles),
+        ncol=len(handles),
         handletextpad=0.5,
         columnspacing=1.0,
     )
     figure.suptitle(
-        f"{MODEL_LABELS[model]}: {library.label}",
-        fontsize=7,
+        f"MetaClock-{model_name}" if go_bp else f"{MODEL_LABELS[model]}: {library.label}",
+        fontsize=10 if go_bp else 7,
         fontweight="bold",
         y=0.955,
     )
-    model_name = "chronological" if model == "chrono" else "biological"
     library_name = {
         "go_bp": "go_biological_process",
         "kegg_2021_human": "kegg_2021_human",
@@ -224,16 +252,42 @@ def plot_pair(
     plt.close(figure)
 
 
+def summarize_go(results_dir: Path, output_dir: Path) -> None:
+    summary, significant = [], []
+    for model in ENRICHMENT["models"]:
+        for direction in ENRICHMENT["directions"]:
+            terms = pd.read_csv(result_path(results_dir, model, "go_bp", direction))
+            p = binom.sf(terms.observed_region_hits - 1, ENRICHMENT["top_n"], terms.genome_fraction)
+            np.testing.assert_allclose(terms.p_value, p, rtol=1e-10, atol=1e-12)
+            np.testing.assert_allclose(terms.p_adjust, false_discovery_control(terms.p_value, method="bh"),
+                                       rtol=1e-10, atol=1e-12)
+            hits = terms.loc[terms.p_adjust < FDR_THRESHOLD].copy()
+            hits.insert(0, "direction", direction)
+            hits.insert(0, "model", model)
+            significant.append(hits)
+            top = terms.sort_values(["p_adjust", "p_value", "id"]).iloc[0]
+            summary.append({"model": model, "direction": direction, "terms": len(terms),
+                            "significant_fdr05": len(hits), "top_id": top.id,
+                            "top_description": top.description, "top_p_adjust": top.p_adjust})
+    output_dir.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(summary).to_csv(output_dir / "summary.csv", index=False)
+    pd.concat(significant, ignore_index=True).to_csv(output_dir / "significant_go_bp.csv", index=False)
+
+
 def main() -> int:
-    """Render all eight chronological/biological enrichment panels."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--results-dir", type=repo_path, default=DEFAULT_RESULTS)
     parser.add_argument("--output-dir", type=repo_path, default=DEFAULT_OUTPUT)
+    parser.add_argument("--library", choices=["all", *ENRICHMENT["libraries"]], default="go_bp")
     args = parser.parse_args()
     configure_style()
     for library in LIBRARIES:
+        if args.library not in ("all", library.key):
+            continue
         for model in ENRICHMENT["models"]:
             plot_pair(model, library, args.results_dir, args.output_dir)
+    if args.library in ("go_bp", "all"):
+        summarize_go(args.results_dir, args.output_dir)
     return 0
 
 

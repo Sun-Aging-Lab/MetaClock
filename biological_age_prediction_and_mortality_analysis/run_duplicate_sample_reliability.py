@@ -18,7 +18,7 @@ from repository_paths import relative_path
 from .config import INCHIANTI_DUPLICATE_PAIRS
 from .data import complete_case_mask, read_analysis_dataset, sort_figure4_samples
 from .production_oof import load_duplicate_predictions
-from .plotting import COLORS, LABELS, clean_axis, configure_style, save_vector_pair
+from .plotting import COLORS, configure_style, format_bar_axis, layout_bar_figure, save_vector_pair
 from .provenance import software_versions
 
 ROOT = Path(__file__).resolve().parent
@@ -102,17 +102,18 @@ def plot_reliability(summary: pd.DataFrame) -> None:
     """Draw the two-model Figure 4 duplicate panel."""
     configure_style()
     table = summary.set_index("model").loc[list(MODEL_ORDER)]
-    figure, axis = plt.subplots(figsize=(60 / 25.4, 50 / 25.4))
+    figure, axis = plt.subplots(figsize=(35 / 25.4, 45 / 25.4))
     axis.bar(
-        [LABELS[model] for model in MODEL_ORDER],
+        range(len(MODEL_ORDER)),
         table["mean_absolute_delta"],
         color=[COLORS[model] for model in MODEL_ORDER],
         edgecolor="#333333",
         linewidth=0.2,
     )
-    axis.set(ylabel="Mean |Δ| (years)", title="Variability Across Replicates")
-    clean_axis(axis)
-    figure.tight_layout()
+    axis.set_ylabel("Mean |Δ| (years)")
+    axis.set_title("Variability\nAcross Replicates", loc="right")
+    format_bar_axis(axis, MODEL_ORDER)
+    layout_bar_figure(figure, top_margin_pt=25.566)
     save_vector_pair(figure, OUTPUT_DIR, "02_duplicate_sample_reliability_barplot")
 
 

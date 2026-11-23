@@ -54,8 +54,7 @@ def _pyaging_runner(
         fcntl.flock(lock, fcntl.LOCK_EX)
         for start in range(0, len(beta), batch_size):
             block = beta.iloc[start : start + batch_size]
-            # Figure 3's original workflow supplied zero for unavailable measurements.
-            # Keep that policy explicit and record the input missingness below.
+            # Missing CpG measurements enter each component clock as zero.
             adata = ad.AnnData(block.fillna(0.0).to_numpy(dtype=np.float32))
             adata.obs_names = block.index.astype(str)
             adata.var_names = block.columns.astype(str)
@@ -140,7 +139,7 @@ def predict_dataset_components(
         "components": list(CHRONOLOGICAL_COMPONENTS),
         "batch_size": batch_size,
         "input_missing_beta_values": missing_values,
-        "input_missing_beta_policy": "zero_imputation_before_PyAging (Figure 3 legacy policy)",
+        "input_missing_beta_policy": "zero_imputation_before_PyAging",
         "model_cache": relative_path(cache_dir),
         "runtime": {"python": platform.python_version()},
         **diagnostics,

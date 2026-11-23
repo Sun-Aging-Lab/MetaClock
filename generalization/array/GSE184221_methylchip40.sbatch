@@ -8,8 +8,6 @@
 #SBATCH --error=slurm-%x-%A_%a.err
 
 set -euo pipefail
-SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-cd "$(cd -- "${SCRIPT_DIR}/../.." && pwd)"
-export OMP_NUM_THREADS="${SLURM_CPUS_PER_TASK}"
-export MKL_NUM_THREADS="${SLURM_CPUS_PER_TASK}"
+cd "${SLURM_SUBMIT_DIR:-$(dirname -- "${BASH_SOURCE[0]}")/../..}"
+export OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1
 python -m generalization.array.GSE184221_methylchip40 --size-index "${SLURM_ARRAY_TASK_ID}"

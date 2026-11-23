@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=species_encv
 #SBATCH --array=0-10
-#SBATCH --cpus-per-task=8
+#SBATCH --cpus-per-task=4
 #SBATCH --mem=64G
 #SBATCH --time=24:00:00
 #SBATCH --output=slurm-%x-%A_%a.out
@@ -9,8 +9,7 @@
 
 set -euo pipefail
 SOURCES=(BosTaurus CanisLupusFamiliaris EquusCaballus HeterocephalusGlaber HomoSapiens MacacaMulatta MusMusculus OvisAries PapioHamadryas RattusNorvegicus alltissueconcat)
-SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-cd "$(cd -- "${SCRIPT_DIR}/../.." && pwd)"
+cd "${SLURM_SUBMIT_DIR:-$(dirname -- "${BASH_SOURCE[0]}")/../..}"
 export OMP_NUM_THREADS=1
 export MKL_NUM_THREADS=1
 export OPENBLAS_NUM_THREADS=1

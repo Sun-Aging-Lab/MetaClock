@@ -1,0 +1,4 @@
+model,title,n_per_group,lowest_20_deaths,highest_20_deaths,delta_deaths_highest_minus_lowest,logrank_chi2,logrank_p,residual_covariates
+metaclock_full19,MetaClock-biological,425,144,212,68,31.019139154415736,2.5549654390212822e-08,age+race_black+race_hispanic
+baseline,Baseline,425,170,210,40,15.478054012056653,8.346876370446957e-05,age+race_black+race_hispanic
+dnamphenoage,DNAmPhenoAge,425,160,207,47,18.083120215925742,2.114678453299878e-05,age+race_black+race_hispanic

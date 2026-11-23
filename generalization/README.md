@@ -1,3 +1,12 @@
+Array, tissue, and species direct EN and SVM models select 1,000 CpGs by mutual
+information within each CV training fold. Meta models use component predictions.
+Scaling is fitted within each training fold for both model types. Species component
+clocks fit median imputation, scaling, and MI selection within their five-fold EN
+search. EN selects among 30 alpha values by mean squared error. Linear SVR uses
+three-fold mean absolute error to select among 20 C values at epsilon 0.001, then
+among 10 epsilon values at the selected C. Each search refits the selected model
+on the full training draw before held-out prediction.
+
 ## Array: download, PyAging, prepare, train/test
 
 ```bash
@@ -37,7 +46,8 @@ commands accept the matching repeatable `--gse` option.
 The species evolution plots read three pairwise tables from
 `generalization/species/`: `pairwise_evolutionary_distances.csv`,
 `pairwise_maximum_lifespan_differences.csv`, and
-`pairwise_gestation_time_differences.csv`.
+`pairwise_gestation_time_differences.csv`. The Patristic Distance axis shows
+the Ensembl Compara release 115 tree-path length multiplied by 100.
 
 ```bash
 python -m generalization.species.fetch_gse223748
@@ -49,6 +59,5 @@ python -m generalization.species.plot_species_generalization
 python -m generalization.species.plot_species_evolution
 ```
 
-After changing the component configuration, rerun input preparation (including
-the pooled CpG input), all eleven component jobs, LOO feature generation, and
-the species generalization jobs before plotting.
+LOO feature generation requires all eleven component fits. Species training
+uses these features to produce the inputs for both plotting commands.

@@ -38,7 +38,7 @@ PANELS = (
     (
         INPUT_ROOT / "pairwise_evolutionary_distances.csv",
         "distance",
-        "Molecular evolutionary distance",
+        "Patristic Distance",
         "component_en_coef_vs_molecular_evolutionary_distance",
     ),
     (
@@ -57,7 +57,7 @@ PANELS = (
 
 
 def configure_style() -> None:
-    """Apply the manuscript style used by the original evolution panels."""
+    """Apply the manuscript style for the evolution panels."""
     register_fonts()
     plt.style.use("seaborn-v0_8-white")
     plt.rcParams.update(

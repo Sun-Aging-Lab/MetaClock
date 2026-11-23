@@ -7,13 +7,13 @@ from generalization.modeling import DatasetSpec
 
 
 def _spec(gse: str, title: str) -> DatasetSpec:
-    base = Path("data/generalization/array") / gse / "prepared"
+    root = Path("data/generalization/array") / gse
     return DatasetSpec(
         gse,
         title,
         "array",
-        base / "direct_cpg_age.parquet",
-        base / "component_predictions_age.parquet",
+        root / "intermediate" / "beta_age.parquet",
+        root / "prepared" / "component_predictions_age.parquet",
         CHRONOLOGICAL_COMPONENTS,
     )
 

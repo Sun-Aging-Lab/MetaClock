@@ -11,7 +11,6 @@ run without Slurm evaluates size index 0.
 
 from __future__ import annotations
 
-import importlib.metadata
 import json
 import os
 import platform
@@ -22,14 +21,14 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 from sklearn.exceptions import ConvergenceWarning
-from sklearn.impute import SimpleImputer
-from sklearn.linear_model import ElasticNet, LinearRegression
-from sklearn.model_selection import GridSearchCV
+from sklearn.linear_model import LinearRegression
 from sklearn.metrics import mean_absolute_error
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
-from sklearn.svm import SVR
 
+from generalization.modeling import (
+    GeneralizationConfig, RESULT_COLUMNS, config_record, fit_model, validate_result as validate_shard,
+)
 from repository_paths import ensure_repo_path, relative_path
 
 from .species_config import (
@@ -50,7 +49,6 @@ from .species_submodels import COMPONENT_CONFIG_ID, ENCV_ARCHITECTURE
 ######################## FIXED SCIENTIFIC CONFIG #############################
 
 TARGET = "age"
-MODEL_NAMES = ("EN", "Meta EN", "SVM", "Meta SVM", "Mean")
 SPLIT_SEED = 105
 RESAMPLE_SEED = 42
 TRAIN_FRACTION = 0.8
@@ -58,27 +56,9 @@ TEST_RESERVE = 10
 N_TRAINING_SIZES = 30
 N_RESAMPLES = 50
 CV_FOLDS = 5
-ALPHAS = np.logspace(0.0, -5.0, 30)
-L1_RATIO = 0.5
-MAX_ITER = 20_000
-TOLERANCE = 1e-4
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 RESULT_ROOT = PROJECT_ROOT / "results" / "generalization" / "species"
-
-RESULT_COLUMNS = (
-    "model",
-    "training_size",
-    "size_index",
-    "repeat_id",
-    "mae",
-    "prediction_sd",
-    "selected_alpha",
-    "n_iter",
-    "nonzero_coefficients",
-    "support_vectors",
-    "convergence_warnings",
-)
-
+STALE_CONFIG_IDS = {"species-dogtop10-fold-local-encv30-svr-ols-v2"}
 
 ############################ INPUT AND SPLIT #################################
 
@@ -147,8 +127,8 @@ def load_model_inputs(
         raise ValueError(f"LOO feature table is missing columns: {missing}")
     if [column for column in loo if column != TARGET] != component_columns:
         raise ValueError("LOO component order differs from the configured order; rebuild them")
-    direct = numeric_features(raw, cpg_columns, "Direct CpG matrix")
-    meta = numeric_features(loo, component_columns, "ENCV component matrix")
+    direct = numeric_features(raw, cpg_columns, "Direct CpG matrix").astype(np.float32)
+    meta = numeric_features(loo, component_columns, "ENCV component matrix").astype(np.float64)
     evolution = numeric_features(loo, evolution_columns, "ENCV evolution component matrix")
     direct[TARGET] = ages
     meta[TARGET] = ages
@@ -160,7 +140,7 @@ def split_and_impute(
     direct: pd.DataFrame, meta: pd.DataFrame
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """Apply the fixed 80/20 split and remove empty training CpG columns."""
-    order = direct.sample(frac=1.0, random_state=SPLIT_SEED).index
+    order = direct.index.to_series().sample(frac=1.0, random_state=SPLIT_SEED).index
     boundary = int(len(order) * TRAIN_FRACTION)
 
     def prepare(
@@ -195,86 +175,6 @@ def training_sizes(n_train: int) -> np.ndarray:
     return sizes
 
 
-############################ MODEL FITTING ###################################
-
-
-def elastic_net() -> GridSearchCV:
-    """Select alpha with scaling fitted separately within each training fold."""
-    return GridSearchCV(
-        Pipeline([
-            ("imputer", SimpleImputer(strategy="median", keep_empty_features=True)),
-            ("scaler", StandardScaler()),
-            ("model", ElasticNet(
-                l1_ratio=L1_RATIO, max_iter=MAX_ITER,
-                selection="cyclic", tol=TOLERANCE,
-            )),
-        ]),
-        {"model__alpha": ALPHAS},
-        cv=CV_FOLDS,
-        scoring="neg_mean_squared_error",
-        n_jobs=int(os.environ.get("SLURM_CPUS_PER_TASK", "1")),
-        error_score="raise",
-    )
-
-
-def linear_svr() -> Pipeline:
-    """Build the formal scaled linear-SVR estimator."""
-    return Pipeline(
-        [
-            ("imputer", SimpleImputer(strategy="constant", fill_value=0.0, keep_empty_features=True)),
-            ("scaler", StandardScaler()),
-            (
-                "model",
-                SVR(
-                    kernel="linear",
-                    C=1.0,
-                    epsilon=0.1,
-                    tol=1e-3,
-                    shrinking=True,
-                    max_iter=-1,
-                ),
-            ),
-        ]
-    )
-
-
-def fit_model(
-    label: str, train: pd.DataFrame, test: pd.DataFrame, size: int, repeat_id: int
-) -> dict[str, object]:
-    """Fit one direct or Meta model and calculate held-out MAE."""
-    estimator = elastic_net() if label in {"EN", "Meta EN"} else linear_svr()
-    with warnings.catch_warnings(record=True) as caught:
-        warnings.simplefilter("always", ConvergenceWarning)
-        estimator.fit(train.drop(columns=TARGET), train[TARGET])
-    prediction = np.asarray(estimator.predict(test.drop(columns=TARGET)), dtype=float)
-    record: dict[str, object] = {
-        "model": label,
-        "training_size": size,
-        "repeat_id": repeat_id,
-        "mae": float(mean_absolute_error(test[TARGET], prediction)),
-        "prediction_sd": float(np.std(prediction, ddof=1)) if len(prediction) > 1 else 0.0,
-        "selected_alpha": np.nan,
-        "n_iter": 0,
-        "nonzero_coefficients": 0,
-        "support_vectors": 0,
-        "convergence_warnings": (
-            np.nan if isinstance(estimator, GridSearchCV) and estimator.n_jobs != 1
-            else sum(issubclass(item.category, ConvergenceWarning) for item in caught)
-        ),
-    }
-    fitted = estimator.best_estimator_ if isinstance(estimator, GridSearchCV) else estimator
-    model = fitted.named_steps["model"]
-    if label in {"EN", "Meta EN"}:
-        record.update(
-            selected_alpha=float(model.alpha),
-            n_iter=int(model.n_iter_),
-            nonzero_coefficients=int(np.count_nonzero(model.coef_)),
-        )
-    else:
-        record["support_vectors"] = int(len(model.support_))
-    return record
-
-
 def evaluate_point(
     direct_train: pd.DataFrame,
     direct_test: pd.DataFrame,
@@ -285,31 +185,36 @@ def evaluate_point(
 ) -> pd.DataFrame:
     """Run all five model rows for each of 50 without-replacement resamples."""
     rows: list[dict[str, object]] = []
+    config = GeneralizationConfig()
     for repeat_id in range(N_RESAMPLES):
         seed = RESAMPLE_SEED + repeat_id + size * 1000
-        sample_ids = direct_train.sample(n=size, replace=False, random_state=seed).index
+        sample_ids = direct_train.index.to_series().sample(n=size, replace=False, random_state=seed).index
         direct_subset, meta_subset = direct_train.loc[sample_ids], meta_train.loc[sample_ids]
-        rows.append(fit_model("EN", direct_subset, direct_test, size, repeat_id))
-        rows.append(fit_model("Meta EN", meta_subset, meta_test, size, repeat_id))
-        rows.append(fit_model("SVM", direct_subset, direct_test, size, repeat_id))
-        rows.append(fit_model("Meta SVM", meta_subset, meta_test, size, repeat_id))
+        for label, train, test in (
+            ("EN", direct_subset, direct_test),
+            ("Meta EN", meta_subset, meta_test),
+            ("SVM", direct_subset, direct_test),
+            ("Meta SVM", meta_subset, meta_test),
+        ):
+            record = fit_model(label, train, test, config, domain="species")
+            record.update(training_size=size, size_index=size_index, repeat_id=repeat_id)
+            rows.append(record)
         mean_prediction = np.full(len(direct_test), direct_subset[TARGET].mean())
-        rows.append(
-            {
-                "model": "Mean",
-                "training_size": size,
-                "repeat_id": repeat_id,
-                "mae": float(mean_absolute_error(direct_test[TARGET], mean_prediction)),
-                "prediction_sd": 0.0,
-                "selected_alpha": np.nan,
-                "n_iter": 0,
-                "nonzero_coefficients": 0,
-                "support_vectors": 0,
-                "convergence_warnings": 0,
-            }
-        )
+        mean_row = {
+            "model": "Mean",
+            "training_size": size,
+            "size_index": size_index,
+            "repeat_id": repeat_id,
+            "mae": float(mean_absolute_error(direct_test[TARGET], mean_prediction)),
+            "prediction_sd": 0.0,
+            "selected_alpha": np.nan,
+            "n_iter": 0,
+            "nonzero_coefficients": 0,
+            "support_vectors": 0,
+            "convergence_warnings": 0,
+        }
+        rows.append(mean_row)
     result = pd.DataFrame(rows)
-    result.insert(2, "size_index", size_index)
     return result.loc[:, list(RESULT_COLUMNS)]
 
 
@@ -319,11 +224,7 @@ def evaluate_point(
 def write_evolution_coefficients(
     evolution: pd.DataFrame, species: str, output: Path
 ) -> Path:
-    """Fit the formal directed non-negative component weights once per species.
-
-    Evolution uses the nine non-self species ENCV inputs shared with the few-shot
-    Meta models, excluding the pooled clock from directed species coefficients.
-    """
+    """Fit nonnegative OLS weights for the nine other species' EN component clocks."""
     features = [column for column in evolution if column != TARGET]
     complete = evolution[[*features, TARGET]].dropna()
     if len(complete) < CV_FOLDS:
@@ -363,20 +264,7 @@ def write_evolution_coefficients(
 
 def validate_result(frame: pd.DataFrame, size: int, size_index: int) -> None:
     """Reject incomplete shards before they can be reused or plotted."""
-    expected = {(model, repeat) for model in MODEL_NAMES for repeat in range(N_RESAMPLES)}
-    observed = set(zip(frame["model"], frame["repeat_id"].astype(int), strict=True))
-    if (
-        set(frame.columns) != set(RESULT_COLUMNS)
-        or observed != expected
-        or len(frame) != len(expected)
-    ):
-        raise ValueError("Point shard does not contain the complete model x resample grid")
-    if set(frame["training_size"].astype(int)) != {size} or set(
-        frame["size_index"].astype(int)
-    ) != {size_index}:
-        raise ValueError("Point shard has the wrong training-size identity")
-    if not np.isfinite(frame[["mae", "prediction_sd"]].to_numpy(float)).all():
-        raise ValueError("Point shard contains non-finite metrics")
+    validate_shard(frame, size, size_index, GeneralizationConfig())
 
 
 def atomic_parquet(frame: pd.DataFrame, output: Path) -> None:
@@ -427,18 +315,20 @@ def main() -> int:
     provenance_path = output.with_suffix(".provenance.json")
     if output.is_file() and provenance_path.is_file():
         provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
-        validate_result(pd.read_parquet(output), size, size_index)
-        if (
-            provenance.get("input_path") != relative_path(path)
-            or provenance.get("config_id") != CONFIG_ID
-        ):
+        if provenance.get("config_id") == CONFIG_ID:
+            validate_result(pd.read_parquet(output), size, size_index)
+            if provenance.get("input_path") != relative_path(path):
+                raise ValueError(f"Existing shard has a different input: {output}")
+            if size_index == 0:
+                write_evolution_coefficients(
+                    evolution, name, RESULT_ROOT / name / "evolution_coefficients.tsv"
+                )
+            print(f"[skip] {name}: size_index={size_index}, training_size={size}")
+            return 0
+        if (provenance.get("config_id") not in STALE_CONFIG_IDS or provenance.get("dataset") != name
+                or provenance.get("input_path") != relative_path(path)):
             raise ValueError(f"Existing shard has a different input or configuration: {output}")
-        if size_index == 0:
-            write_evolution_coefficients(
-                evolution, name, RESULT_ROOT / name / "evolution_coefficients.tsv"
-            )
-        print(f"[skip] {name}: size_index={size_index}, training_size={size}")
-        return 0
+        print(f"[stale] {name}: refitting size_index={size_index} under {CONFIG_ID}")
     result = evaluate_point(direct_train, direct_test, meta_train, meta_test, size, size_index)
     validate_result(result, size, size_index)
     atomic_parquet(result, output)
@@ -465,28 +355,15 @@ def main() -> int:
                 "sampler": "pandas.DataFrame.sample",
                 "seed_formula": "42 + repeat_id + training_size * 1000",
             },
-            "elastic_net_cv": {
-                "search": "GridSearchCV",
-                "pipeline": ["SimpleImputer", "StandardScaler", "ElasticNet"],
-                "imputer": {"strategy": "median", "keep_empty_features": True},
-                "scoring": "neg_mean_squared_error",
-                "fold_local_preprocessing": True,
-                "convergence_warning_count_scope": "all fits when serial; unavailable with process workers",
-                "cv": CV_FOLDS,
-                "alphas": ALPHAS.tolist(),
-                "l1_ratio": L1_RATIO,
-                "max_iter": MAX_ITER,
-                "tol": TOLERANCE,
-                "n_jobs": int(os.environ.get("SLURM_CPUS_PER_TASK", "1")),
-            },
-            "svr": {
-                "pipeline": ["SimpleImputer", "StandardScaler", "SVR"],
-                "imputer": {"strategy": "constant", "fill_value": 0.0},
-                "kernel": "linear",
-                "C": 1.0,
-                "epsilon": 0.1,
-                "tol": 1e-3,
-                "max_iter": -1,
+            "modeling": {
+                "adapter": "generalization.modeling.fit_model",
+                "domain": "species",
+                "config": config_record(GeneralizationConfig()),
+                "direct_dtype": "float32",
+                "meta_dtype": "float64",
+                "direct_pipeline": "fold-local MI-1000 -> median imputer -> scaler -> EN; MI -> zero-fill -> scaler -> tuned SVR",
+                "meta_pipeline": "median imputer -> scaler -> EN; finite float64 scaler -> tuned SVR",
+                "workers": int(os.environ.get("SLURM_CPUS_PER_TASK", "4")),
             },
             "runtime": {
                 "hostname": platform.node(),

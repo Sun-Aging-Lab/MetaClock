@@ -55,7 +55,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def precheck(row: pd.Series) -> tuple[str, str]:
-    """Apply the original longitudinal, exposure, responsiveness, and donor gates."""
+    """Screen catalog entries by study design, exposure, responsiveness, and reported donor counts."""
     if row["Longitudinal or Cross-Sectional"] != "Longitudinal":
         return "excluded_catalog", "not_longitudinal"
     if row["Dataset Type"] not in {"Intervention", "Event"}:
@@ -84,7 +84,7 @@ def precheck(row: pd.Series) -> tuple[str, str]:
 def screen_catalog(
     catalog_path: Path,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict[str, Any]]:
-    """Screen current entries but select only the reviewed 19-analysis family."""
+    """Screen the catalog and select the 19 reviewed analyses."""
     provenance, inventory = load_frozen_inventory()
     catalog = pd.read_csv(catalog_path)
     required = {
@@ -195,7 +195,10 @@ def screen_catalog(
             set(candidates.loc[candidates["overlaps_previous_geo"], "Public ID"])
         ),
         "selected_previous_geo_accessions": ["GSE201532", "GSE74548"],
-        "cross_source_deduplication": "Retain both source analyses here; replace the two prior GEO results with TranslAGE at combined BH correction.",
+        "cross_source_deduplication": (
+            "Both source analyses are recorded. For GSE201532 and GSE74548, "
+            "the combined BH correction uses the TranslAGE results."
+        ),
         "selection_frozen_before_prediction": True,
         "sample_level_validation_required": True,
         "python": platform.python_version(),

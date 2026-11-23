@@ -30,6 +30,7 @@ MODEL_NAMES = ("EN", "Meta EN", "SVM", "Meta SVM", "Mean")
 N_TRAINING_SIZES = 30
 N_RESAMPLES = 50
 MINIMUM_PLOT_SIZE = 10
+LEGEND_LOCATION = "upper right"
 EXPECTED_CONFIG_ID = CONFIG_ID
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 RESULT_ROOT = PROJECT_ROOT / "results" / "generalization" / "tissue"
@@ -222,7 +223,24 @@ def finish_axis(axis: Axes, displayed: list[pd.DataFrame], show_ylabel: bool) ->
     axis.set_xlabel("# Training Samples")
     axis.set_ylabel("MAE" if show_ylabel else "")
     axis.grid(True, linestyle="--", alpha=0.35, linewidth=0.4)
-    axis.legend(loc="best", frameon=False, handletextpad=0.3)
+    legend = axis.legend(loc=LEGEND_LOCATION, frameon=False, handletextpad=0.3)
+    box = legend.get_window_extent().padded(2 * axis.figure.dpi / 72)
+    left = axis.transData.inverted().transform((box.x0, box.y0))[0]
+    available_height = axis.transAxes.inverted().transform((box.x0, box.y0))[1]
+    # Leave the upper confidence band below the legend, including its left edge on the log x-axis.
+    peak_mean = peak_band = lower
+    log_left = np.log(left)
+    for values in displayed:
+        x = np.log(values["training_size"].to_numpy())
+        visible = x >= log_left
+        if visible.any():
+            mean = values["mean"].to_numpy()
+            high = values["q975"].to_numpy()
+            peak_mean = max(peak_mean, mean[visible].max(), np.interp(log_left, x, mean))
+            peak_band = max(peak_band, high[visible].max(), np.interp(log_left, x, high))
+    bottom, top = axis.get_ylim()
+    if peak_mean > bottom + (top - bottom) * available_height:
+        axis.set_ylim(bottom, bottom + (max(peak_mean, peak_band) - bottom) / available_height)
 
 
 def render_panel(
@@ -238,6 +256,7 @@ def render_panel(
     figure, (svm_axis, en_axis) = plt.subplots(
         1, 2, figsize=(PANEL_WIDTH_MM / 25.4, PANEL_HEIGHT_MM / 25.4)
     )
+    figure.subplots_adjust(left=0.22, right=0.96, bottom=0.23, top=0.80, wspace=0.48)
     for axis, family, direct, meta in (
         (svm_axis, "SVM", "SVM", "Meta SVM"),
         (en_axis, "EN", "EN", "Meta EN"),
@@ -255,7 +274,6 @@ def render_panel(
         axis.set_title(family, fontweight="normal", pad=3.0)
         finish_axis(axis, displayed, show_ylabel=axis is svm_axis)
     figure.text(0.575, 0.89, title, ha="center", va="top", fontsize=9.75, fontweight="bold")
-    figure.subplots_adjust(left=0.22, right=0.96, bottom=0.23, top=0.80, wspace=0.48)
     output_stem.parent.mkdir(parents=True, exist_ok=True)
     outputs = output_stem.with_suffix(".pdf"), output_stem.with_suffix(".svg")
     for output in outputs:

@@ -51,7 +51,7 @@ from .data import (
     numeric_matrix,
     read_analysis_dataset,
 )
-from .plotting import COLORS, LABELS, clean_axis, configure_style, save_vector_pair
+from .plotting import COLORS, configure_style, format_bar_axis, layout_bar_figure, save_vector_pair
 from .provenance import software_versions
 from .production_oof import (
     primary_samples, production_oof_folds, save_oof_predictions, save_duplicate_predictions,
@@ -168,12 +168,12 @@ def run_pyaging_components(frame: pd.DataFrame, cpgs: list[str]) -> pd.DataFrame
 # --- Cross-validated elastic net and selected-alpha refit ---
 
 
-def fit_fold_local_elasticnet(
+def search_fold_local_elasticnet(
     x: np.ndarray,
     y: np.ndarray,
     *,
-    seed: int = SEED,
-) -> Pipeline:
+    n_jobs: int = SEARCH_WORKERS,
+) -> GridSearchCV:
     """Fit the fixed five-fold alpha search with all learned preprocessing inside CV."""
     x = np.asarray(x, dtype=np.float64)
     y = np.asarray(y, dtype=np.float64)
@@ -195,10 +195,10 @@ def fit_fold_local_elasticnet(
     estimator = Pipeline(steps)
     search = GridSearchCV(
         estimator, {"elasticnet__alpha": ALPHAS.copy()}, cv=splits,
-        scoring="neg_mean_squared_error", refit=True, n_jobs=SEARCH_WORKERS,
-        pre_dispatch=SEARCH_WORKERS, error_score="raise", return_train_score=False,
+        scoring="neg_mean_squared_error", refit=True, n_jobs=n_jobs,
+        pre_dispatch="n_jobs", error_score="raise", return_train_score=False,
     )
-    with threadpool_limits(limits=1), joblib.parallel_backend("threading", n_jobs=SEARCH_WORKERS):
+    with threadpool_limits(limits=1), joblib.parallel_backend("threading", n_jobs=n_jobs):
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always", ConvergenceWarning)
             search.fit(x, y)
@@ -217,7 +217,13 @@ def fit_fold_local_elasticnet(
         "n_features": x.shape[1],
         "selected_features": x.shape[1],
     }
-    return model
+    return search
+
+
+def fit_fold_local_elasticnet(
+    x: np.ndarray, y: np.ndarray, *, seed: int = SEED,
+) -> Pipeline:
+    return search_fold_local_elasticnet(x, y).best_estimator_
 
 
 def fit_full_refit_elasticnet(
@@ -380,11 +386,11 @@ def plot_metrics(metrics: pd.DataFrame) -> None:
     """Draw the formal MAE and Pearson-r panels."""
     configure_style()
     table = metrics.set_index("model").loc[list(MODEL_ORDER)]
-    figure, axes = plt.subplots(1, 2, figsize=(120 / 25.4, 50 / 25.4))
+    figure, axes = plt.subplots(1, 2, figsize=(70 / 25.4, 45 / 25.4))
     specs = (("mae", "MAE (years)", "Prediction error"), ("pearson_r", "Pearson r", "Correlation"))
     for axis, (column, ylabel, title) in zip(axes, specs, strict=True):
         axis.bar(
-            [LABELS[model] for model in MODEL_ORDER],
+            range(len(MODEL_ORDER)),
             table[column],
             color=[COLORS[model] for model in MODEL_ORDER],
             edgecolor="#333333",
@@ -393,8 +399,9 @@ def plot_metrics(metrics: pd.DataFrame) -> None:
         axis.set(ylabel=ylabel, title=title)
         if column == "pearson_r":
             axis.set_ylim(0.90, 1.00)
-        clean_axis(axis)
-    figure.tight_layout()
+        axis.locator_params(axis="y", nbins=5)
+        format_bar_axis(axis, MODEL_ORDER)
+    layout_bar_figure(figure, top_margin_pt=15.63, column_gap_pt=38.18)
     save_vector_pair(figure, OUTPUT_DIR, "01_bioage_mae_pearson_barplot")
 
 

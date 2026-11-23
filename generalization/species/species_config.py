@@ -67,7 +67,7 @@ EXPECTED_SAMPLE_COUNTS = {
 POOLED_COMPONENT = "alltissueconcat"
 INPUT_CONFIG_ID = "species-dogtop10-gestation-mixed-precision-v1"
 LOO_CONFIG_ID = "species-dogtop10-ordered-loo-v1"
-GENERALIZATION_CONFIG_ID = "species-dogtop10-fold-local-encv30-svr-ols-v2"
+GENERALIZATION_CONFIG_ID = "species-dogtop10-fold-local-mi1000-encv30-tuned-svr-v3"
 
 
 

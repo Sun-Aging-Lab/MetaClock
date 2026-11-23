@@ -1,0 +1,4 @@
+model,title,n_per_group,lowest_20_deaths,highest_20_deaths,delta_deaths_highest_minus_lowest,logrank_chi2,logrank_p,residual_covariates
+metaclock_fhs5,MetaClock-biological,521,146,265,119,63.689285281410704,1.456747604912449e-15,age+female+batch_umn
+baseline,Baseline,521,154,249,95,41.45057815464055,1.2088880329065578e-10,age+female+batch_umn
+dnamphenoage,DNAmPhenoAge,521,158,244,86,32.96007843820408,9.407081593076631e-09,age+female+batch_umn

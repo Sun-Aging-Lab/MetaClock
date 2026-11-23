@@ -1,0 +1,160 @@
+<?xml version="1.0" encoding="utf-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
+  "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<svg xmlns:xlink="http://www.w3.org/1999/xlink" width="99.212598pt" height="127.559055pt" viewBox="0 0 99.212598 127.559055" xmlns="http://www.w3.org/2000/svg" version="1.1">
+ <metadata>
+  <rdf:RDF xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:cc="http://creativecommons.org/ns#" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+   <cc:Work>
+    <dc:type rdf:resource="http://purl.org/dc/dcmitype/StillImage"/>
+    <dc:date>2026-11-20T12:50:04.591780</dc:date>
+    <dc:format>image/svg+xml</dc:format>
+    <dc:creator>
+     <cc:Agent>
+      <dc:title>Matplotlib v3.10.8, https://matplotlib.org/</dc:title>
+     </cc:Agent>
+    </dc:creator>
+   </cc:Work>
+  </rdf:RDF>
+ </metadata>
+ <defs>
+  <style type="text/css">*{stroke-linejoin: round; stroke-linecap: butt}</style>
+ </defs>
+ <g id="figure_1">
+  <g id="patch_1">
+   <path d="M 0 127.559055 
+L 99.212598 127.559055 
+L 99.212598 0 
+L 0 0 
+z
+" style="fill: #ffffff"/>
+  </g>
+  <g id="axes_1">
+   <g id="patch_2">
+    <path d="M 27.2 84.188976 
+L 96.062598 84.188976 
+L 96.062598 25.566 
+L 27.2 25.566 
+z
+" style="fill: #ffffff"/>
+   </g>
+   <g id="matplotlib.axis_1">
+    <g id="xtick_1">
+     <g id="line2d_1">
+      <defs>
+       <path id="m0cb9447515" d="M 0 0 
+L 0 3.5 
+" style="stroke: #000000; stroke-width: 0.2"/>
+      </defs>
+      <g>
+       <use xlink:href="#m0cb9447515" x="42.877868" y="84.188976" style="stroke: #000000; stroke-width: 0.2"/>
+      </g>
+     </g>
+     <g id="text_1">
+      <text style="font-size: 8px; font-family: 'Liberation Sans'" transform="translate(4.287515 112.412983) rotate(-25)">MetaClock</text>
+      <text style="font-size: 8px; font-family: 'Liberation Sans'" transform="translate(9.533381 119.474603) rotate(-25)">-biological</text>
+     </g>
+    </g>
+    <g id="xtick_2">
+     <g id="line2d_2">
+      <g>
+       <use xlink:href="#m0cb9447515" x="80.38473" y="84.188976" style="stroke: #000000; stroke-width: 0.2"/>
+      </g>
+     </g>
+     <g id="text_2">
+      <text style="font-size: 8px; font-family: 'Liberation Sans'" transform="translate(51.871997 109.411865) rotate(-25)">Baseline</text>
+     </g>
+    </g>
+   </g>
+   <g id="matplotlib.axis_2">
+    <g id="ytick_1">
+     <g id="line2d_3">
+      <path d="M 27.2 84.188976 
+L 96.062598 84.188976 
+" clip-path="url(#pb51d3c9184)" style="fill: none; stroke: #dddddd; stroke-width: 0.05; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_4">
+      <defs>
+       <path id="mdf24ab729a" d="M 0 0 
+L -3.5 0 
+" style="stroke: #000000; stroke-width: 0.2"/>
+      </defs>
+      <g>
+       <use xlink:href="#mdf24ab729a" x="27.2" y="84.188976" style="stroke: #000000; stroke-width: 0.2"/>
+      </g>
+     </g>
+     <g id="text_3">
+      <text style="font-size: 8px; font-family: 'Liberation Sans'; text-anchor: end" x="20.2" y="87.087726" transform="rotate(-0 20.2 87.087726)">0</text>
+     </g>
+    </g>
+    <g id="ytick_2">
+     <g id="line2d_5">
+      <path d="M 27.2 55.546545 
+L 96.062598 55.546545 
+" clip-path="url(#pb51d3c9184)" style="fill: none; stroke: #dddddd; stroke-width: 0.05; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_6">
+      <g>
+       <use xlink:href="#mdf24ab729a" x="27.2" y="55.546545" style="stroke: #000000; stroke-width: 0.2"/>
+      </g>
+     </g>
+     <g id="text_4">
+      <text style="font-size: 8px; font-family: 'Liberation Sans'; text-anchor: end" x="20.2" y="58.445295" transform="rotate(-0 20.2 58.445295)">2</text>
+     </g>
+    </g>
+    <g id="ytick_3">
+     <g id="line2d_7">
+      <path d="M 27.2 26.904113 
+L 96.062598 26.904113 
+" clip-path="url(#pb51d3c9184)" style="fill: none; stroke: #dddddd; stroke-width: 0.05; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_8">
+      <g>
+       <use xlink:href="#mdf24ab729a" x="27.2" y="26.904113" style="stroke: #000000; stroke-width: 0.2"/>
+      </g>
+     </g>
+     <g id="text_5">
+      <text style="font-size: 8px; font-family: 'Liberation Sans'; text-anchor: end" x="20.2" y="29.802863" transform="rotate(-0 20.2 29.802863)">4</text>
+     </g>
+    </g>
+    <g id="text_6">
+     <text style="font-size: 9.75px; font-family: 'Liberation Sans'; text-anchor: middle" x="9.685469" y="54.877488" transform="rotate(-90 9.685469 54.877488)">Mean |Δ| (years)</text>
+    </g>
+   </g>
+   <g id="patch_3">
+    <path d="M 27.875124 84.188976 
+L 57.880613 84.188976 
+L 57.880613 43.443922 
+L 27.875124 43.443922 
+z
+" clip-path="url(#pb51d3c9184)" style="fill: #bfdb87; stroke: #333333; stroke-width: 0.2; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_4">
+    <path d="M 65.381985 84.188976 
+L 95.387475 84.188976 
+L 95.387475 28.35757 
+L 65.381985 28.35757 
+z
+" clip-path="url(#pb51d3c9184)" style="fill: #4d4d4d; stroke: #333333; stroke-width: 0.2; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_5">
+    <path d="M 27.2 84.188976 
+L 27.2 25.566 
+" style="fill: none; stroke: #000000; stroke-width: 0.2; stroke-linejoin: miter; stroke-linecap: square"/>
+   </g>
+   <g id="patch_6">
+    <path d="M 27.2 84.188976 
+L 96.062598 84.188976 
+" style="fill: none; stroke: #000000; stroke-width: 0.2; stroke-linejoin: miter; stroke-linecap: square"/>
+   </g>
+   <g id="text_7">
+    <text style="font-size: 9.5px; font-family: 'Liberation Sans'" transform="translate(55.582208 9.333313)">Variability</text>
+    <text style="font-size: 9.5px; font-family: 'Liberation Sans'" transform="translate(20.037364 19.566)">Across Replicates</text>
+   </g>
+  </g>
+ </g>
+ <defs>
+  <clipPath id="pb51d3c9184">
+   <rect x="27.2" y="25.566" width="68.862598" height="58.622976"/>
+  </clipPath>
+ </defs>
+</svg>

@@ -57,7 +57,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def safe_id(value: str) -> str:
-    """Use the original analysis directory naming convention."""
+    """Format a TranslAGE dataset ID for use as a directory name."""
     return re.sub(r"[^A-Za-z0-9._-]+", "_", value).strip("_")
 
 

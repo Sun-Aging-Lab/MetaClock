@@ -72,8 +72,6 @@ def preparation_main(domain: str) -> int:
     _selection(parser, domain)
     parser.add_argument("--cache-dir", type=repo_path, default=DEFAULT_CACHE)
     parser.add_argument("--pyaging-batch-size", type=int, default=32)
-    parser.add_argument("--mi-features", type=int, default=10_000)
-    parser.add_argument("--mrmr-features", type=int, default=1_000)
     parser.add_argument("--force", action="store_true")
     args = parser.parse_args()
     for spec in select_datasets(domain, args.gse):
@@ -81,8 +79,6 @@ def preparation_main(domain: str) -> int:
             spec,
             args.data_root,
             cache_dir=args.cache_dir,
-            mi_features=args.mi_features,
-            mrmr_features=args.mrmr_features,
             pyaging_batch_size=args.pyaging_batch_size,
             force=args.force,
         )

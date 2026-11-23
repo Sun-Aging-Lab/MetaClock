@@ -1,58 +1,31 @@
 {
-  "prediction_config_id": "figure4-primary19-fullcpg-foldlocal-v1",
-  "prediction_source": "shared biological_age_prediction/oof_predictions.csv",
-  "outer_folds": "primary participants; age-decade by sex; StratifiedKFold(5, shuffle=True, random_state=0)",
-  "prediction_model": "19-component MetaClock and full-CpG baseline; shared fold-local OOF predictions",
-  "cox_scope": "pooled OOF predictions; observed clinical PhenoAge comparator",
-  "cox_fit": "exact Figure 4 standardized specification: every covariate z-scored with population SD (ddof=0); CoxPHFitter alpha=0.05, Breslow baseline, penalizer=0.0; robust=False; show_progress=False",
-  "models": [
-    "bio_metaclock",
-    "baseline",
-    "clinical_phenoage"
-  ],
-  "bio_metaclock_components": [
-    "dnamphenoage",
-    "hrsinchphenoage",
-    "grimage",
-    "grimage2",
-    "dnamic",
-    "zhangmortality",
-    "systemsage",
-    "systemsageblood",
-    "systemsagebrain",
-    "systemsageheart",
-    "systemsagehormone",
-    "systemsageimmune",
-    "systemsageinflammation",
-    "systemsagekidney",
-    "systemsageliver",
-    "systemsagelung",
-    "systemsagemetabolic",
-    "systemsagemusculoskeletal",
-    "dunedinpace"
-  ],
-  "panels": {
-    "prediction_plus_chronological_age_sex": [
-      "prediction_z",
-      "age_z",
-      "sex_z"
-    ],
-    "prediction_plus_sex": [
-      "prediction_z",
-      "sex_z"
-    ],
-    "prediction_plus_chronological_age": [
-      "prediction_z",
-      "age_z"
-    ]
+  "cohorts": {
+    "fhs": {
+      "sample": "FHS Offspring exam 8",
+      "n": 2606,
+      "deaths": 929,
+      "adjustment": [
+        "age",
+        "sex",
+        "DNAm laboratory"
+      ]
+    },
+    "whi": {
+      "sample": "WHI BA23 enrollment",
+      "n": 2127,
+      "deaths": 894,
+      "adjustment": [
+        "age",
+        "race"
+      ]
+    }
   },
-  "software": {
-    "python": "3.11.14",
-    "numpy": "2.3.5",
-    "pandas": "2.3.3",
-    "scikit-learn": "1.8.0",
-    "lifelines": "0.30.3",
-    "pyaging": "0.1.30",
-    "anndata": "0.12.0"
+  "fit": "lifelines CoxPHFitter, primary specification, penalizer=0, Wald 95% intervals, per population SD of each score",
+  "analysis_date": "2026-11-12",
+  "upstream_table_sha256": {
+    "cox_results.csv": "8a11ae7801df8374cf7d8311b344c0aab7bae85e2879c4c0387b12cc595cb5ec"
+  },
+  "plot_input_sha256": {
+    "fhs_whi_cox_coefficients_standardized_source_data.csv": "26a8198bd7a2c9ca2bdcb1d09e748ca6f23b2e468b09d71d6336ef6f7b597f28"
   }
 }

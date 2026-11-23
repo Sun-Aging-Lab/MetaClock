@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build the shared sample-level InCHIANTI analysis table from three raw files."""
+"""Build the shared sample-level InCHIANTI analysis table from DNAm and baseline laboratory data."""
 
 from __future__ import annotations
 
@@ -23,7 +23,6 @@ from .config import (
 MODULE_DIR = Path(__file__).resolve().parent
 DNAM_RDATA_PATH = Path("path/to/your/file")  # fill in your path: DNAm RData
 LAB_SAS_PATH = Path("path/to/your/file")  # fill in your path: baseline laboratory SAS table
-VITAL_SAS_PATH = Path("path/to/your/file")  # fill in your path: Vital Status SAS table
 OUTPUT_PATH = MODULE_DIR / "outputs" / "preprocessing" / "inchianti_analysis_ready.parquet"
 CRP_SOURCE = "prefer_hs"
 APPLY_PLAUSIBLE_RANGE_FILTER = True
@@ -211,34 +210,15 @@ def build_clinical_table(
     return out, range_report
 
 
-def load_vital_table(path: Path) -> pd.DataFrame:
-    """Load unique participant mortality status, wave, and follow-up dates."""
-    vital = pd.read_sas(path, format="sas7bdat", encoding="latin1")
-    vital.columns = [str(column) for column in vital.columns]
-    required = ("CODE98", "DECEASED", "INTV_MOR", "DATA_MOR", "DATA_ULT")
-    require_columns(vital, set(required), path)
-    optional = [column for column in ("ANNO_MOR", "STAT_ULT") if column in vital]
-    out = vital.loc[:, [*required, *optional]].rename(columns={"CODE98": "ID"}).copy()
-    out["ID"] = pd.to_numeric(out["ID"], errors="coerce")
-    out["DECEASED"] = pd.to_numeric(out["DECEASED"], errors="coerce")
-    out["INTV_MOR"] = pd.to_numeric(out["INTV_MOR"], errors="coerce")
-    out = out.dropna(subset=["ID"]).copy()
-    if out["ID"].duplicated().any():
-        raise ValueError(f"{path} has duplicate vital-status rows for an ID")
-    return out
-
-
 def build_metadata(
     pheno: pd.DataFrame,
     beta_sample_ids: pd.Index,
     clinical: pd.DataFrame,
-    vital: pd.DataFrame,
 ) -> tuple[pd.DataFrame, np.ndarray]:
-    """Join phenotype, clinical, and vital data in beta-matrix sample order.
+    """Join phenotype and clinical data in beta-matrix sample order.
 
     Returns the sample metadata and the corresponding integer beta-matrix
-    column positions. Survival and wave-based Kaplan-Meier endpoints are
-    derived here from the joined vital-status fields.
+    column positions.
     """
     keep = [
         column for column in ("ID", "sampleID", "visit", "AGE", "SEX") if column in pheno
@@ -249,16 +229,6 @@ def build_metadata(
     metadata = metadata[metadata["sampleID"].isin(beta_sample_ids)].copy()
     metadata["n_dnam_samples"] = metadata.groupby("ID")["sampleID"].transform("size")
     metadata = metadata.merge(clinical, on="ID", how="left", validate="many_to_one")
-    metadata = metadata.merge(vital, on="ID", how="left", validate="many_to_one")
-
-    deceased = pd.to_numeric(metadata["DECEASED"], errors="coerce")
-    metadata["event"] = np.where(deceased.notna(), deceased.eq(1).astype(float), np.nan)
-    death_date = sas_date(metadata["DATA_MOR"])
-    last_date = sas_date(metadata["DATA_ULT"])
-    endpoint = death_date.where(metadata["event"].eq(1), last_date)
-    metadata["survival_time_years"] = (
-        endpoint - pd.to_datetime(metadata["lab_date"], errors="coerce")
-    ).dt.days / 365.25
     clinical_sex = pd.to_numeric(metadata["SEX"], errors="coerce")
     if "dnam_sex" in metadata:
         dnam_sex = pd.to_numeric(metadata["dnam_sex"], errors="coerce")
@@ -267,16 +237,6 @@ def build_metadata(
     combined_sex = clinical_sex.combine_first(dnam_sex)
     metadata["sex_male"] = np.where(
         combined_sex.notna(), combined_sex.eq(1).astype(float), np.nan
-    )
-
-    wave = pd.to_numeric(metadata["INTV_MOR"], errors="coerce")
-    death_wave = wave.isin([4, 5, 6])
-    alive_wave = wave.eq(0)
-    metadata["km_event"] = np.where(
-        death_wave, 1.0, np.where(alive_wave, 0.0, np.nan)
-    )
-    metadata["km_time"] = np.where(
-        death_wave, wave, np.where(alive_wave, 6.0, np.nan)
     )
 
     sample_position = pd.Series(np.arange(len(beta_sample_ids)), index=beta_sample_ids)
@@ -339,14 +299,12 @@ def main() -> None:
     clinical, range_report = build_clinical_table(
         LAB_SAS_PATH, CRP_SOURCE, APPLY_PLAUSIBLE_RANGE_FILTER
     )
-    vital = load_vital_table(VITAL_SAS_PATH)
-    metadata, sample_positions = build_metadata(pheno, beta_sample_ids, clinical, vital)
+    metadata, sample_positions = build_metadata(pheno, beta_sample_ids, clinical)
     n_dnam_features = write_dataset(OUTPUT_PATH, metadata, beta, cpg_names, sample_positions)
     summary = {
         "inputs": {
             "dnam_rdata": str(DNAM_RDATA_PATH.resolve()),
             "lab_sas": str(LAB_SAS_PATH.resolve()),
-            "vital_sas": str(VITAL_SAS_PATH.resolve()),
         },
         "output": relative_path(OUTPUT_PATH),
         "rdata_objects": ["b.baseline", "pheno.baseline"],
@@ -358,7 +316,6 @@ def main() -> None:
         "n_clinical_phenoage_complete": int(
             metadata["clinical_phenoage_complete_case"].sum()
         ),
-        "n_survival_events": int(metadata["event"].eq(1).sum()),
         "n_dnam_features": n_dnam_features,
         "dnam_feature_prefix_counts": DNAM_FEATURE_PREFIX_COUNTS,
         "dnam_feature_policy": "all b.baseline rows in original RData order",

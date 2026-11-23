@@ -29,7 +29,7 @@ LABELS = {
     "clinical_phenoage": "PhenoAge",
 }
 COLORS = {
-    "bio_metaclock": "#91D1C2",
+    "bio_metaclock": "#BFDB87",
     "baseline": "#4D4D4D",
     "dnamphenoage": "#009E73",
     "clinical_phenoage": "#CC79A7",
@@ -100,6 +100,23 @@ def clean_axis(axis: plt.Axes, *, grid: bool = True) -> None:
     if grid:
         axis.set_axisbelow(True)
         axis.grid(axis="y", color="#DDDDDD", linewidth=0.05)
+
+
+def format_bar_axis(axis: plt.Axes, models: tuple[str, ...]) -> None:
+    labels = [LABELS[name].replace("-", "\n-", 1) for name in models]
+    axis.set_xticks(range(len(models)), labels, rotation=25, ha="right", fontsize=8)
+    axis.margins(x=0.01)
+    clean_axis(axis)
+
+
+def layout_bar_figure(figure: plt.Figure, *, top_margin_pt: float, column_gap_pt: float = 0) -> None:
+    width_pt, height_pt = 72 * figure.get_size_inches()
+    left_pt, right_pt = 27.2, 3.15
+    columns = len(figure.axes)
+    panel_width_pt = (width_pt - left_pt - right_pt - (columns - 1) * column_gap_pt) / columns
+    figure.subplots_adjust(left=left_pt / width_pt, right=1 - right_pt / width_pt,
+                           bottom=0.34, top=1 - top_margin_pt / height_pt,
+                           wspace=column_gap_pt / panel_width_pt)
 
 
 def ordered_rows(table: pd.DataFrame, models: tuple[str, ...]) -> pd.DataFrame:

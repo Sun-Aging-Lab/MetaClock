@@ -197,12 +197,14 @@ def atomic_parquet(frame: pd.DataFrame, output: Path) -> None:
         temporary.unlink(missing_ok=True)
 
 
-def read_wide_parquet(path: Path) -> pd.DataFrame:
+def read_wide_parquet(path: Path, columns: list[str] | None = None) -> pd.DataFrame:
     """Read very wide methylation Parquets with explicit Arrow metadata limits."""
     import pyarrow.parquet as pq
 
     return pq.read_table(
         path,
+        columns=columns,
+        use_pandas_metadata=True,
         thrift_container_size_limit=THRIFT_CONTAINER_LIMIT,
         thrift_string_size_limit=THRIFT_STRING_LIMIT,
     ).to_pandas()
