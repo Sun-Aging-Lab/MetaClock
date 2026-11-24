@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import argparse
 import json
 import platform
 from importlib.metadata import version
@@ -293,18 +294,28 @@ def write_dataset(
     return len(selected_names)
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
     """Prepare the shared table and record external input paths and software versions."""
-    beta, cpg_names, beta_sample_ids, pheno = load_rdata(DNAM_RDATA_PATH)
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--dnam-rdata", type=Path, default=DNAM_RDATA_PATH,
+                        metavar="FILE", help="Local InCHIANTI DNAm RData file.")
+    parser.add_argument("--lab-sas", type=Path, default=LAB_SAS_PATH,
+                        metavar="FILE", help="Local baseline laboratory SAS file.")
+    args = parser.parse_args(argv)
+    dnam_path, lab_path = args.dnam_rdata.expanduser(), args.lab_sas.expanduser()
+    for path, option in ((dnam_path, "--dnam-rdata"), (lab_path, "--lab-sas")):
+        if not path.is_file():
+            parser.error(f"{option} requires a local file: {path}")
+    beta, cpg_names, beta_sample_ids, pheno = load_rdata(dnam_path)
     clinical, range_report = build_clinical_table(
-        LAB_SAS_PATH, CRP_SOURCE, APPLY_PLAUSIBLE_RANGE_FILTER
+        lab_path, CRP_SOURCE, APPLY_PLAUSIBLE_RANGE_FILTER
     )
     metadata, sample_positions = build_metadata(pheno, beta_sample_ids, clinical)
     n_dnam_features = write_dataset(OUTPUT_PATH, metadata, beta, cpg_names, sample_positions)
     summary = {
         "inputs": {
-            "dnam_rdata": str(DNAM_RDATA_PATH.resolve()),
-            "lab_sas": str(LAB_SAS_PATH.resolve()),
+            "dnam_rdata": str(dnam_path.resolve()),
+            "lab_sas": str(lab_path.resolve()),
         },
         "output": relative_path(OUTPUT_PATH),
         "rdata_objects": ["b.baseline", "pheno.baseline"],

@@ -29,7 +29,7 @@ python -m "$go.rebuild_cpg_weights" bio --component-weights path/to/bio_coeffici
 python -m "$go.select_top_bottom_cpg_foregrounds" --selected-cpgs results/enrichment/weights/chrono/selected_cpg_weights.csv results/enrichment/weights/bio/selected_cpg_weights.csv
 ```
 
-To refit from component predictions, use the following commands. For biological age, the prepared metadata provide `sampleID` and `clinical_phenoage`. The pinned primary sample IDs determine the training cohort and its order. Component predictions must include `sampleID` and the selected clocks.
+To refit from component predictions, use the following commands. For biological age, `--matched-samples` must be the authorized local full prepared cohort: it supplies `ID`, `sampleID`, `age_years`, `sex_male`, `clinical_phenoage`, and `clinical_phenoage_complete_case`. The refit filters to complete cases before selecting primaries. Primary samples and their five folds are reconstructed deterministically by numeric ID/sample-suffix ordering followed by `StratifiedKFold(5, shuffle=True, random_state=0)` on age-decade × sex. Component predictions must include `sampleID` and the selected clocks.
 
 ```bash
 python -m "$go.rebuild_cpg_weights" chrono --component-weights path/to/chrono_coefficients.csv --membership "$union" --output-dir results/enrichment/refit/chrono --predictions chronological_age_prediction_performance/training_component_clock_predictions.csv --n-jobs 4

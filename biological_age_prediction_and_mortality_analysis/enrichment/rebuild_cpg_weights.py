@@ -16,9 +16,9 @@ from sklearn.model_selection import GridSearchCV, KFold
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
-from ..config import ENRICHMENT, MANIFEST_PATH, PRODUCTION_OOF_FOLD_ASSIGNMENT_PATH
-from ..data import read_analysis_dataset, sort_figure4_samples
-from ..production_oof import production_assignment
+from ..config import ENRICHMENT, MANIFEST_PATH
+from ..data import complete_case_mask, read_analysis_dataset
+from ..production_oof import primary_samples
 from ..provenance import software_versions, write_json
 from ..run_biological_age_prediction import SEED, search_fold_local_elasticnet
 
@@ -53,13 +53,24 @@ def prepare_training(
     else:
         if matched_path is None:
             raise ValueError("Biological training requires --matched-samples.")
-        primary = sort_figure4_samples(production_assignment())[["ID", "sampleID"]]
-        matched = read_analysis_dataset(matched_path, columns=["sampleID", "clinical_phenoage"])
+        matched = read_analysis_dataset(
+            matched_path,
+            columns=[
+                "ID", "sampleID", "age_years", "sex_male", "clinical_phenoage",
+                "clinical_phenoage_complete_case",
+            ],
+        )
+        complete = complete_case_mask(matched["clinical_phenoage_complete_case"])
+        matched = matched.loc[complete].dropna(
+            subset=["ID", "sampleID", "age_years", "sex_male", "clinical_phenoage"]
+        ).copy()
+        primary = primary_samples(matched)[["ID", "sampleID"]]
+        matched_target = matched[["sampleID", "clinical_phenoage"]]
         outputs = pd.read_csv(predictions_path, float_precision="round_trip")
         columns = ["sampleID", *features]
         if "clinical_phenoage" in outputs:
             columns.append("clinical_phenoage")
-        frame = primary.merge(matched, on="sampleID", validate="one_to_one").merge(
+        frame = primary.merge(matched_target, on="sampleID", validate="one_to_one").merge(
             outputs[columns], on="sampleID", validate="one_to_one", suffixes=("", "_components"),
         )
         if not frame.sampleID.equals(primary.sampleID):
@@ -163,7 +174,11 @@ def main() -> None:
     parser.add_argument("model", choices=tuple(MODEL_NAMES))
     parser.add_argument("--predictions", type=Path,
                         help="Refit from component predictions. By default reuse the bundled meta weights.")
-    parser.add_argument("--matched-samples", type=Path)
+    parser.add_argument(
+        "--matched-samples", type=Path,
+        help=("Authorized full prepared cohort with ID, sampleID, age_years, sex_male, "
+              "clinical_phenoage, and clinical_phenoage_complete_case."),
+    )
     parser.add_argument("--component-weights", type=Path, required=True,
                         help="Audited fixed-affine component CpG coefficient CSV/CSV.GZ.")
     parser.add_argument("--membership", type=Path, required=True)
@@ -207,7 +222,7 @@ def main() -> None:
     if args.matched_samples is not None:
         sources["matched_samples"] = args.matched_samples
     if args.model == "bio":
-        sources["primary_assignments"] = PRODUCTION_OOF_FOLD_ASSIGNMENT_PATH
+        sources["primary_split_configuration"] = MANIFEST_PATH
         sources["fit_implementation"] = MANIFEST_PATH.with_name("run_biological_age_prediction.py")
     write_json(args.output_dir / "training_manifest.json", {
         "model": args.model, "components": features, "samples": len(frame),

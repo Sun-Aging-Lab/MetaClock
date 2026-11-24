@@ -81,7 +81,6 @@ MORTALITY_MODELS = {
 PRODUCTION_OOF = BIOLOGICAL_ANALYSIS["production_oof"]
 INCHIANTI_OOF_FOLDS = int(PRODUCTION_OOF["folds"])
 PRODUCTION_CONFIG_ID = str(PRODUCTION_OOF["config_id"])
-PRODUCTION_OOF_FOLD_ASSIGNMENT_PATH = MANIFEST_PATH.parent / str(PRODUCTION_OOF["path"])
 
 
 def require_exact_sequence(observed: list[str], expected: tuple[str, ...], label: str) -> None:

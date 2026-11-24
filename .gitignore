@@ -27,6 +27,24 @@ slurm-*.out
 /results/
 /figures/
 
+# Individual InCHIANTI records and exact FHS/WHI survival timelines
+inchianti_primary_oof_folds.csv
+inchianti_oof_fold_assignment.csv
+inchianti_km_oof_fold_assignment.csv
+fhs_km_curve_points.csv
+whi_km_curve_points.csv
+fhs_pheno.csv
+whi_pheno.csv
+fhs_predictions.csv
+whi_predictions.csv
+/biological_age_prediction_and_mortality_analysis/outputs/preprocessing/
+/biological_age_prediction_and_mortality_analysis/outputs/biological_age_prediction/valid_samples_and_folds.csv
+/biological_age_prediction_and_mortality_analysis/outputs/biological_age_prediction/component_clock_predictions.csv
+/biological_age_prediction_and_mortality_analysis/outputs/biological_age_prediction/oof_predictions.csv
+/biological_age_prediction_and_mortality_analysis/outputs/biological_age_prediction/duplicate_holdout_predictions.csv
+/biological_age_prediction_and_mortality_analysis/outputs/biological_age_prediction/models/training_samples.csv
+/biological_age_prediction_and_mortality_analysis/outputs/duplicate_sample_reliability/duplicate_pair_absolute_deltas.csv
+
 # Large analysis artifacts
 *.joblib
 *.pkl

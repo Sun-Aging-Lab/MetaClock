@@ -39,7 +39,6 @@ from .config import (
     INCHIANTI_COMPLETE_CASE_SAMPLES,
     INCHIANTI_PARTICIPANTS,
     PRODUCTION_CONFIG_ID,
-    PRODUCTION_OOF_FOLD_ASSIGNMENT_PATH,
     OOF_COMPONENTS,
 )
 from .data import (
@@ -474,7 +473,8 @@ def main() -> int:
                 "convergence_policy": "fixed iteration cap; warnings and selected-refit diagnostics retained",
                 "metric_level": "672 pooled primary OOF predictions",
                 "oof_fold_assignment": {
-                    "path": relative_path(PRODUCTION_OOF_FOLD_ASSIGNMENT_PATH),
+                    "method": "StratifiedKFold(5, shuffle=True, random_state=0) on age decade × sex",
+                    "input_columns": ["ID", "sampleID", "age_years", "sex_male"],
                     "fold_labels": list(range(N_FOLDS)),
                 },
                 "full_refit": refit,

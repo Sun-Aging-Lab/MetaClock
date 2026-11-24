@@ -61,7 +61,6 @@
     ],
     "production_oof": {
       "config_id": "figure4-primary19-fullcpg-foldlocal-v1",
-      "path": "inchianti_primary_oof_folds.csv",
       "rows": 672,
       "folds": 5,
       "fold_counts": {
@@ -72,6 +71,9 @@
         "4": 134
       },
       "outer_split": "StratifiedKFold(5,shuffle=True,random_state=0); floor(age/10)*10 crossed with SEX",
+      "split_input_columns": ["ID", "sampleID", "age_years", "sex_male"],
+      "split_assignment": "computed locally from the authorized analysis cohort; no participant identifiers are distributed",
+      "assignment_sha256": "289230fa7996ecaaaa91d4a5ea9fea23453f833edf5a74f63fdc776b6b7cf342",
       "training_order": "numeric ID then numeric sampleID suffix",
       "primary": "lowest numeric sampleID suffix",
       "metric_level": "one primary sample per participant",

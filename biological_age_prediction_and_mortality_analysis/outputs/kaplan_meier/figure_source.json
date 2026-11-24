@@ -33,5 +33,7 @@
     "fhs_km_logrank_and_deaths.csv": "28c39386b0b3ccc6c34ce5b4efe5d340cfc89c3c7857f6728e647645b25a243b",
     "whi_km_curve_points.csv": "f787484a4a9b08a480b15d3a62ae47bd326a31d226b163d16c942a8b3f5b3300",
     "whi_km_logrank_and_deaths.csv": "74ff109e428fae3ba092c10f297ec4c7130c78a353239278292a9a48454adb07"
-  }
+  },
+  "curve_input": "Supply the detailed curve-point files from a local directory with --private-curve-dir to redraw the published panels.",
+  "cohort_input": "Pass --private-cohort-dir with local follow-up and clock prediction files to refit the primary quintile comparisons and verify the published group counts and log-rank statistics."
 }

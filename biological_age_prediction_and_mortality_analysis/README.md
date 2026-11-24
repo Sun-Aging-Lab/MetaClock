@@ -2,8 +2,9 @@
 
 ## Figure 4 panels
 
-Render the two InCHIANTI bar plots, the external disease heatmap and the separate
-FHS and WHI Cox and Kaplan–Meier plots from the included group-level summaries.
+The default command renders the two InCHIANTI bar plots, the external disease
+heatmap, and the FHS and WHI Cox plots from the group summaries. It uses the
+bundled Kaplan–Meier panels for Figure 4f–g.
 
 ```bash
 python -m biological_age_prediction_and_mortality_analysis.plot_figure4
@@ -29,25 +30,27 @@ for age and race. Outputs are in `outputs/biological_age_prediction/`,
 
 The prediction and duplicate-sample analyses use the DNAm RData containing
 `b.baseline` and `pheno.baseline`, and the baseline laboratory SAS table.
-Set both input paths in `prepare_inchianti_dataset.py`.
+Supply both local files to build the shared analysis table. Replace each example
+path with the corresponding file on your machine.
 
-```python
-DNAM_RDATA_PATH = Path("path/to/your/file")  # DNAm RData
-LAB_SAS_PATH = Path("path/to/your/file")  # baseline laboratory SAS table
+```bash
+python -m biological_age_prediction_and_mortality_analysis.prepare_inchianti_dataset \
+  --dnam-rdata path/to/your/methylation.RData \
+  --lab-sas path/to/your/baseline_labs.sas7bdat
 ```
 
-These inputs may be outside the repository. Build the shared table once:
-
-    python -m biological_age_prediction_and_mortality_analysis.prepare_inchianti_dataset
+The two downstream commands use the generated table. Existing configurations
+can still set `DNAM_RDATA_PATH` and `LAB_SAS_PATH` in the preparation script.
 
 ## 1. Biological-age prediction
 
 Input: one sample per row with `ID`, `sampleID`, `age_years`,
-`clinical_phenoage`, `clinical_phenoage_complete_case`, and DNAm features. The primary-profile donor-to-fold mapping is pinned in
-`inchianti_primary_oof_folds.csv`. Participants are sorted by numeric ID and
-sample suffix; the lowest-suffix sample is used for each participant. The
-19-component MetaClock and full-CpG baseline share five outer folds stratified
-by age decade and sex. Both use shuffled five-fold inner CV with seed 0,
+`clinical_phenoage`, `clinical_phenoage_complete_case`, and DNAm features. For each participant the workflow selects the
+complete-case sample with the lowest numeric sample-ID suffix. It sorts primary
+samples by numeric participant ID, then reconstructs the original five outer
+folds from age decade and sex with scikit-learn’s shuffled StratifiedKFold
+(seed 0). A checksum verifies the full assignment. The 19-component MetaClock
+and the full-CpG baseline share these folds. Both use shuffled five-fold inner CV with seed 0,
 zero imputation and scaling inside each training fold, 30 alphas from 1 to
 1e-5, and cyclic elastic net with l1_ratio=0.5, max_iter=20000 and tol=1e-4.
 The baseline uses all 485,577 DNAm features without feature selection.
@@ -86,16 +89,15 @@ python -m biological_age_prediction_and_mortality_analysis.run_external_disease_
 
 ## 4. Mortality in FHS and WHI
 
-The two mortality entry points render Figures 4d–g from the included cohort
-summaries. FHS follow-up starts at examination 8 (2,606 participants, 929
+Figures 4d–g report external cohort mortality. FHS follow-up starts at examination 8 (2,606 participants, 929
 deaths). WHI follow-up starts at enrollment (2,127 participants, 894 deaths).
 Each panel compares MetaClock-biological (5 components in FHS and 19 in WHI),
 the full-CpG baseline, and DNAmPhenoAge.
 
 The Cox source table contains the unpenalized lifelines estimates and Wald
-95% confidence intervals per within-cohort SD. The Kaplan–Meier source tables
-contain survival probabilities, 95% confidence intervals, death counts, and
-two-sided log-rank tests. The curves compare the highest and lowest quintiles
+95% confidence intervals per within-cohort SD. The Kaplan–Meier summary tables
+contain group sizes, death counts, and two-sided log-rank tests. The published panels show
+the survival curves and 95% confidence bands. The curves compare the highest and lowest quintiles
 of each score after regression on age, sex, and DNAm laboratory in FHS or
 age and race in WHI. Each tail contains 521 FHS or 425 WHI participants.
 ΔDeaths is the difference in death counts over full follow-up (highest minus
@@ -105,6 +107,34 @@ lowest quintile).
 python -m biological_age_prediction_and_mortality_analysis.run_cox_analysis
 python -m biological_age_prediction_and_mortality_analysis.run_kaplan_meier_analysis
 ```
+
+To reproduce Figure 4f–g from authorized participant follow-up and clock
+scores, supply the directory containing the four local CSVs.
+
+```bash
+python -m biological_age_prediction_and_mortality_analysis.run_kaplan_meier_analysis \
+  --private-cohort-dir path/to/your/mortality_data
+```
+
+| File under the supplied directory | Required columns |
+| --- | --- |
+| `inputs/fhs_pheno.csv` | `sample_id`, `time_years`, `event`, `age`, `female`, `batch_umn` |
+| `inputs/whi_pheno.csv` | `sample_id`, `time_years`, `event`, `age`, `race_black`, `race_hispanic` |
+| `predictions/fhs_predictions.csv` | `sample_id`, `metaclock_fhs5`, `baseline`, `dnamphenoage` |
+| `predictions/whi_predictions.csv` | `sample_id`, `metaclock_full19`, `baseline`, `dnamphenoage` |
+
+Each cohort has one row per sample in each file, with matching IDs. Follow-up
+is in years. The death indicator is 1 for a death and 0 for censoring. The
+command fits the adjusted quintile comparisons, verifies group counts and
+log-rank results against the manuscript, and writes the two panels as PDF
+and SVG. Detailed event times and curve estimates stay in memory.
+
+If you already have the two manuscript curve tables, you can redraw the same
+panels with `--private-curve-dir path/to/your/curve_tables`. That directory
+supplies `fhs_km_curve_points.csv` and `whi_km_curve_points.csv`. This mode
+uses the published log-rank and death-count annotations. The main Figure 4
+command accepts either local input option. With neither option it uses the
+bundled Kaplan–Meier panels.
 
 ## CpG-weight enrichment
 

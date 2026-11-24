@@ -9,7 +9,9 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from .config import PRODUCTION_CONFIG_ID, PRODUCTION_OOF_FOLD_ASSIGNMENT_PATH
+from sklearn.model_selection import StratifiedKFold
+
+from .config import INCHIANTI_PARTICIPANTS, PRODUCTION_CONFIG_ID, PRODUCTION_OOF
 from .data import _canonical_participant_ids, sort_figure4_samples
 from .provenance import software_versions
 
@@ -20,24 +22,54 @@ PREDICTION_COLUMNS = (
 )
 
 
+def assignment_sha256(assignment: pd.DataFrame) -> str:
+    """Hash the canonical, locally reconstructed assignment without saving IDs."""
+    payload = assignment[["ID", "sampleID", "fold"]].to_csv(index=False, lineterminator="\n").encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
+
+
 def file_sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def production_assignment() -> pd.DataFrame:
-    assignment = pd.read_csv(PRODUCTION_OOF_FOLD_ASSIGNMENT_PATH, dtype={"ID": str, "sampleID": str})
+def production_assignment(frame: pd.DataFrame) -> pd.DataFrame:
+    """Reconstruct the published outer folds from complete-case InCHIANTI profiles."""
+    required = {"ID", "sampleID", "age_years", "sex_male"}
+    if missing := required.difference(frame.columns):
+        raise ValueError(f"Cannot reconstruct OOF folds; missing columns: {sorted(missing)}")
+    # Select these four columns before sorting so fold reconstruction never copies
+    # the 485,577-column DNAm matrix.
+    primary = sort_figure4_samples(frame.loc[:, sorted(required)]).drop_duplicates(
+        "ID", keep="first"
+    ).reset_index(drop=True)
+    age = pd.to_numeric(primary.age_years, errors="coerce")
+    sex = pd.to_numeric(primary.sex_male, errors="coerce")
+    if (age.isna().any() or not np.isfinite(age).all() or sex.isna().any()
+            or not np.isfinite(sex).all() or not sex.isin((0, 1)).all()):
+        raise ValueError("OOF fold reconstruction requires finite age_years and binary sex_male.")
+    # Keep the exact historical age-decade × sex strata and canonical row order.
+    strata = (np.floor(age.to_numpy(float) / 10).astype(int).astype(str) + "_" +
+              sex.to_numpy(int).astype(str))
+    fold = np.empty(len(primary), dtype=int)
+    splitter = StratifiedKFold(n_splits=int(PRODUCTION_OOF["folds"]), shuffle=True, random_state=0)
+    for number, (_, held_out) in enumerate(splitter.split(primary, strata)):
+        fold[held_out] = number
+    assignment = primary[["ID", "sampleID"]].copy()
     assignment["ID"] = _canonical_participant_ids(assignment["ID"])
-    if (set(assignment.columns) != {"ID", "sampleID", "fold"}
-            or len(assignment) != 672 or assignment.ID.duplicated().any()
-            or assignment.sampleID.duplicated().any()
-            or not assignment.fold.isin(range(5)).all()
-            or assignment.fold.value_counts().sort_index().tolist() != [135, 135, 134, 134, 134]):
+    assignment["sampleID"] = assignment["sampleID"].astype(str)
+    assignment["fold"] = fold
+    expected_counts = [int(PRODUCTION_OOF["fold_counts"][str(index)]) for index in range(5)]
+    if (len(assignment) != INCHIANTI_PARTICIPANTS or assignment.ID.duplicated().any()
+            or assignment.sampleID.duplicated().any() or not assignment.fold.isin(range(5)).all()
+            or assignment.fold.value_counts().sort_index().tolist() != expected_counts):
         raise ValueError("Invalid primary-participant OOF assignment.")
+    if assignment_sha256(assignment) != str(PRODUCTION_OOF["assignment_sha256"]):
+        raise ValueError("Reconstructed OOF assignment differs from the published 672-row assignment.")
     return assignment
 
 
 def production_oof_folds(frame: pd.DataFrame) -> np.ndarray:
-    assignment = production_assignment()
+    assignment = production_assignment(frame)
     ids = _canonical_participant_ids(frame.ID)
     if set(ids) != set(assignment.ID):
         raise ValueError("Figure 4 participants do not match the production OOF assignment.")
@@ -45,10 +77,14 @@ def production_oof_folds(frame: pd.DataFrame) -> np.ndarray:
 
 
 def primary_samples(frame: pd.DataFrame) -> pd.DataFrame:
-    primary = sort_figure4_samples(frame).drop_duplicates("ID", keep="first").reset_index(drop=True)
-    expected = production_assignment().set_index("ID").sampleID
-    if set(primary.ID) != set(expected.index) or not primary.sampleID.eq(primary.ID.map(expected)).all():
-        raise ValueError("Primary sample IDs differ from the Figure 4 cohort.")
+    assignment = production_assignment(frame)
+    primary = frame.loc[frame.sampleID.astype(str).isin(assignment.sampleID)].copy()
+    primary["ID"] = _canonical_participant_ids(primary["ID"])
+    primary["sampleID"] = primary["sampleID"].astype(str)
+    primary = primary.merge(assignment[["ID", "sampleID"]], on=["ID", "sampleID"], how="inner", validate="one_to_one")
+    primary = sort_figure4_samples(primary)
+    if len(primary) != INCHIANTI_PARTICIPANTS:
+        raise ValueError("Primary samples differ from the Figure 4 cohort.")
     return primary
 
 
@@ -80,7 +116,7 @@ def _validate_predictions(frame: pd.DataFrame, expected: pd.DataFrame, models: t
             if not np.allclose(result[column].to_numpy(float), reference, rtol=1e-12, atol=1e-10):
                 raise ValueError(f"Prediction {column} differs from the analysis cohort.")
     if kind == "oof":
-        by_id = production_assignment().set_index("ID").fold
+        by_id = production_assignment(expected).set_index("ID").fold
         if not result.fold.eq(result.ID.map(by_id)).all():
             raise ValueError("Predictions use a different OOF assignment.")
     elif not result.fold.eq(-1).all():
@@ -88,7 +124,9 @@ def _validate_predictions(frame: pd.DataFrame, expected: pd.DataFrame, models: t
     return result
 
 
-def _save_predictions(predictions: pd.DataFrame, output_dir: Path, kind: str, expected: pd.DataFrame) -> None:
+def _save_predictions(
+    predictions: pd.DataFrame, output_dir: Path, kind: str, expected: pd.DataFrame,
+) -> None:
     models = tuple(model for model in MODEL_NAMES if model in set(predictions.model))
     frame = _validate_predictions(predictions, expected, models, kind=kind)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -97,7 +135,7 @@ def _save_predictions(predictions: pd.DataFrame, output_dir: Path, kind: str, ex
     frame.to_csv(path, index=False)
     manifest = {
         "config_id": PRODUCTION_CONFIG_ID,
-        "assignment_sha256": file_sha256(PRODUCTION_OOF_FOLD_ASSIGNMENT_PATH),
+        "assignment_sha256": str(PRODUCTION_OOF["assignment_sha256"]),
         "predictions_sha256": file_sha256(path),
         "models": list(models),
         "samples_per_model": len(expected),
@@ -108,7 +146,8 @@ def _save_predictions(predictions: pd.DataFrame, output_dir: Path, kind: str, ex
 
 
 def save_oof_predictions(predictions: pd.DataFrame, *, output_dir: Path | None = None) -> None:
-    _save_predictions(predictions, output_dir or DEFAULT_OUTPUT_DIR, "oof", production_assignment())
+    expected = primary_samples(predictions.drop_duplicates("sampleID"))
+    _save_predictions(predictions, output_dir or DEFAULT_OUTPUT_DIR, "oof", expected)
 
 
 def save_duplicate_predictions(predictions: pd.DataFrame, valid: pd.DataFrame, *, output_dir: Path | None = None) -> None:
@@ -119,14 +158,16 @@ def save_duplicate_predictions(predictions: pd.DataFrame, valid: pd.DataFrame, *
     _save_predictions(predictions, output_dir or DEFAULT_OUTPUT_DIR, "duplicate", expected)
 
 
-def _load_predictions(output_dir: Path, kind: str, expected: pd.DataFrame, models: tuple[str, ...]) -> pd.DataFrame:
+def _load_predictions(
+    output_dir: Path, kind: str, expected: pd.DataFrame, models: tuple[str, ...],
+) -> pd.DataFrame:
     stem = "oof" if kind == "oof" else "duplicate_holdout"
     path, manifest_path = output_dir / f"{stem}_predictions.csv", output_dir / f"{stem}_manifest.json"
     if not path.is_file() or not manifest_path.is_file():
         raise FileNotFoundError("Run biological-age prediction before the downstream Figure 4 analysis.")
     manifest = json.loads(manifest_path.read_text())
     if (manifest.get("config_id") != PRODUCTION_CONFIG_ID
-            or manifest.get("assignment_sha256") != file_sha256(PRODUCTION_OOF_FOLD_ASSIGNMENT_PATH)
+            or manifest.get("assignment_sha256") != str(PRODUCTION_OOF["assignment_sha256"])
             or manifest.get("predictions_sha256") != file_sha256(path)
             or manifest.get("prediction_kind") != kind
             or not set(models).issubset(manifest.get("models", []))):
